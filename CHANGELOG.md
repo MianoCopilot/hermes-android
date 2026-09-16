@@ -4,6 +4,12 @@ All notable changes to this project are documented here. Format based on [Keep a
 
 ## [Unreleased]
 
+### Added
+- `GET /battery` — battery percentage and charge state straight from `BatteryManager` (`getIntProperty(BATTERY_PROPERTY_CAPACITY)`, API 21; `isCharging()`, API 23) instead of scraping the status-bar accessibility node, which mis-reads across OEM skins and device languages. Neither value depends on the accessibility service running, and at `minSdk 26` neither needs a version gate. Fixed response shape — `batteryPercentage` and `charging`, both always present — because the HTTP and relay transports serialise nulls differently (#103).
+
+### Fixed
+- Relay route allowlist lifted out of `_serve()` to module level (`_ROUTES`) so tests can assert on it. `docs/architecture.md` is now pinned to the allowlist in both directions, and the two `android_relay.py` copies are pinned byte-identical. An endpoint added to `CommandDispatcher` without the matching allowlist entry used to fail silently: reachable over direct USB/LAN, refused over the relay — which is the default transport (#103).
+
 ## [0.5.0] - 2026-09-05
 
 ### Added

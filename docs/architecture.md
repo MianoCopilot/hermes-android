@@ -58,6 +58,7 @@ Key classes (`app/src/main/kotlin/com/hermesandroid/bridge/`):
 - `service/BridgeAccessibilityService.kt` — singleton AccessibilityService; reads UI tree on demand.
 - `executor/ActionExecutor.kt` — tap/type/swipe/scroll/wait/open-app; wakes device via `WakeLockManager`.
 - `executor/ScreenReader.kt` — traverses accessibility tree → `ScreenNode` hierarchy; finds nodes by text.
+- `power/BatteryMonitor.kt` — battery level and charge state from `BatteryManager`; platform values, never status-bar text.
 - `overlay/StatusOverlay.kt` — always-on HUD.
 
 Required permissions: `ACCESSIBILITY_SERVICE`, `SYSTEM_ALERT_WINDOW`, `INTERNET`, `WAKE_LOCK`, `FOREGROUND_SERVICE` (plus optional runtime perms for location/contacts/SMS/phone/notifications).
@@ -67,7 +68,7 @@ Required permissions: `ACCESSIBILITY_SERVICE`, `SYSTEM_ALERT_WINDOW`, `INTERNET`
 aiohttp server in a background daemon thread, started by `android_setup()`.
 
 - `/ws` (WebSocket) — phone connects with a Bearer authorization header.
-- HTTP bridge endpoints (method per path) — GET: `/ping`, `/screen`, `/screenshot`, `/apps`, `/current_app`, `/notifications`, `/contacts`, `/events`, `/screen_hash`, `/location`, `/widgets`, `/mic_status`, `/mic_file`. POST: `/tap`, `/tap_text`, `/type`, `/swipe`, `/open_app`, `/press_key`, `/scroll`, `/wait`, `/long_press`, `/drag`, `/describe_node`, `/find_nodes`, `/diff_screen`, `/pinch`, `/send_sms`, `/call`, `/media`, `/intent`, `/broadcast`, `/speak`, `/stop_speaking`, `/screen_record`, `/events/stream`, `/mic_start`, `/mic_stop`. Both: `/clipboard`.
+- HTTP bridge endpoints (method per path) — GET: `/ping`, `/screen`, `/screenshot`, `/apps`, `/current_app`, `/notifications`, `/contacts`, `/events`, `/screen_hash`, `/location`, `/battery`, `/widgets`, `/mic_status`, `/mic_file`. POST: `/tap`, `/tap_text`, `/type`, `/swipe`, `/open_app`, `/press_key`, `/scroll`, `/wait`, `/long_press`, `/drag`, `/describe_node`, `/find_nodes`, `/diff_screen`, `/pinch`, `/send_sms`, `/call`, `/media`, `/intent`, `/broadcast`, `/speak`, `/stop_speaking`, `/screen_record`, `/events/stream`, `/mic_start`, `/mic_stop`. Both: `/clipboard`.
 - Auth: pairing code case-sensitive (exact compare, see #43). 5 failed attempts / 60s → IP blocked 5 min. Only one phone connected at a time.
 
 ## Tools

@@ -198,6 +198,61 @@ def _ssl_context() -> Optional["ssl.SSLContext"]:
     return ctx
 
 
+# ── Relay HTTP route allowlist ────────────────────────────────────────────────
+
+# HTTP bridge endpoints the relay will forward, and the method each accepts.
+# Anything not listed here is refused, so a new CommandDispatcher route is not
+# reachable through the relay until it is added — module level rather than a
+# local inside _serve() so tests can assert on it. Keeping the two in step is
+# what stops an endpoint existing on the phone but being silently unreachable
+# through the default (relay) transport.
+_ROUTES = {
+# GET-only
+"/ping":          "GET",
+"/screen":        "GET",
+"/screenshot":    "GET",
+"/apps":          "GET",
+"/current_app":   "GET",
+"/notifications": "GET",
+"/contacts":      "GET",
+"/events":        "GET",
+"/screen_hash":   "GET",
+"/location":      "GET",
+"/battery":       "GET",
+"/widgets":       "GET",
+"/mic_status":    "GET",
+"/mic_file":      "GET",
+# POST-only
+"/tap":           "POST",
+"/tap_text":      "POST",
+"/type":          "POST",
+"/swipe":         "POST",
+"/open_app":      "POST",
+"/press_key":     "POST",
+"/scroll":        "POST",
+"/wait":          "POST",
+"/long_press":    "POST",
+"/drag":          "POST",
+"/describe_node": "POST",
+"/find_nodes":    "POST",
+"/diff_screen":   "POST",
+"/pinch":         "POST",
+"/send_sms":      "POST",
+"/call":          "POST",
+"/media":         "POST",
+"/intent":        "POST",
+"/broadcast":     "POST",
+"/speak":         "POST",
+"/stop_speaking": "POST",
+"/screen_record": "POST",
+"/events/stream": "POST",
+"/mic_start":     "POST",
+"/mic_stop":      "POST",
+# READ + WRITE
+"/clipboard":     "BOTH",
+}
+
+
 async def _serve(state: _RelayState, ready: threading.Event) -> None:
     """Build the aiohttp app, start the site, and block until shutdown."""
     app = web.Application()
@@ -209,53 +264,8 @@ async def _serve(state: _RelayState, ready: threading.Event) -> None:
 
     app.router.add_get("/ws", websocket_handler)
 
-    # HTTP bridge endpoints — method per path
-    ROUTES = {
-        # GET-only
-        "/ping":          "GET",
-        "/screen":        "GET",
-        "/screenshot":    "GET",
-        "/apps":          "GET",
-        "/current_app":   "GET",
-        "/notifications": "GET",
-        "/contacts":      "GET",
-        "/events":        "GET",
-        "/screen_hash":   "GET",
-        "/location":      "GET",
-        "/widgets":       "GET",
-        "/mic_status":    "GET",
-        "/mic_file":      "GET",
-        # POST-only
-        "/tap":           "POST",
-        "/tap_text":      "POST",
-        "/type":          "POST",
-        "/swipe":         "POST",
-        "/open_app":      "POST",
-        "/press_key":     "POST",
-        "/scroll":        "POST",
-        "/wait":          "POST",
-        "/long_press":    "POST",
-        "/drag":          "POST",
-        "/describe_node": "POST",
-        "/find_nodes":    "POST",
-        "/diff_screen":   "POST",
-        "/pinch":         "POST",
-        "/send_sms":      "POST",
-        "/call":          "POST",
-        "/media":         "POST",
-        "/intent":        "POST",
-        "/broadcast":     "POST",
-        "/speak":         "POST",
-        "/stop_speaking": "POST",
-        "/screen_record": "POST",
-        "/events/stream": "POST",
-        "/mic_start":     "POST",
-        "/mic_stop":      "POST",
-        # READ + WRITE
-        "/clipboard":     "BOTH",
-    }
 
-    for path, method in ROUTES.items():
+    for path, method in _ROUTES.items():
         async def handler(request: web.Request, route_path: str = path) -> web.StreamResponse:
             return await _handle_http(request, state, route_path)
 

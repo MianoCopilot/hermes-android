@@ -3,6 +3,7 @@
 package com.hermesandroid.bridge.server
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import com.google.gson.JsonObject
 import com.hermesandroid.bridge.BridgeApplication
@@ -16,6 +17,7 @@ import com.hermesandroid.bridge.media.ScreenRecorder
 import com.hermesandroid.bridge.model.DeviceCapabilities
 import com.hermesandroid.bridge.model.ScreenNode
 import com.hermesandroid.bridge.notification.NotificationStore
+import com.hermesandroid.bridge.power.BatteryMonitor
 import com.hermesandroid.bridge.service.BridgeAccessibilityService
 import com.hermesandroid.bridge.service.BridgeNotificationListener
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +36,18 @@ import kotlinx.coroutines.withContext
  *   server computes it from the request's Bearer token. Only `/ping` reports it back.
  */
 object CommandDispatcher {
+
+    /**
+     * Where the battery read gets its Context.
+     *
+     * A seam rather than a direct `BridgeApplication.instance` read. That
+     * property is published from `Application.onCreate`, which Robolectric does
+     * not run, and it cannot be assigned from a test because its setter is
+     * private — so without this the endpoint is untestable rather than merely
+     * awkward to test. Tests point it at `RuntimeEnvironment.getApplication()`;
+     * nothing else replaces it.
+     */
+    internal var batteryContext: () -> Context = { BridgeApplication.instance }
 
     suspend fun dispatch(
         method: String,
@@ -264,6 +278,39 @@ object CommandDispatcher {
             method == "GET" && path == "/location" -> {
                 val result = ActionExecutor.location()
                 result to 200
+            }
+
+            method == "GET" && path == "/battery" -> {
+                // Both values come from BatteryManager — percentage via
+                // getIntProperty (API 21), charge state via isCharging (API 23)
+                // — against a minSdk of 26, so there is no version gate and no
+                // dependency on the accessibility service. Reading the level
+                // out of the status-bar node instead would be language- and
+                // OEM-fragile; see BatteryMonitor.
+                //
+                // No auth check here on purpose. The ktor interceptor in
+                // BridgeServer requires a valid Bearer token for every path
+                // except /ping, and the relay authenticates at connect time
+                // before passing `true`. A second gate in the handler would be
+                // unreachable and would only imply the first one is optional.
+                //
+                // The shape is fixed — both keys, always present. Nullable
+                // fields are not an option even though BridgeServer configures
+                // serializeNulls(): RelayClient serialises results with a
+                // default Gson(), which drops nulls, so a nullable key would
+                // appear over HTTP and vanish over the relay.
+                val app = batteryContext()
+                val percentage = BatteryMonitor.percentage(app)
+                val charging = BatteryMonitor.charging(app)
+                if (percentage == null || charging == null) {
+                    return mapOf(
+                        "error" to "Battery state unavailable on this device",
+                    ) to 503
+                }
+                mapOf(
+                    "batteryPercentage" to percentage,
+                    "charging" to charging,
+                ) to 200
             }
 
             method == "POST" && path == "/send_sms" -> {

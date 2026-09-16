@@ -652,3 +652,74 @@ class TestAwaitLogRecord:
     def test_it_fails_loudly_when_the_record_never_arrives(self, caplog):
         with pytest.raises(AssertionError, match="no log record containing"):
             _await_log_record(caplog, "this is never logged", timeout=0.05)
+
+
+class TestRouteAllowlist:
+    """The relay forwards only what _ROUTES lists, so gaps are silent.
+
+    A route added to CommandDispatcher but not to the allowlist works over
+    direct USB/LAN and simply does not exist over the relay — which is the
+    default transport. Nothing fails loudly, so these tests are the only thing
+    standing between a new endpoint and being quietly unreachable.
+    """
+
+    def test_battery_is_forwarded_as_a_get(self):
+        from tools.android_relay import _ROUTES
+
+        assert _ROUTES.get("/battery") == "GET"
+
+    def test_the_documented_endpoints_are_exactly_the_allowlist(self):
+        """docs/architecture.md and _ROUTES must not drift in either direction.
+
+        Catches both the endpoint that was documented but never allowlisted —
+        reachable on paper, refused in practice — and the one that was
+        allowlisted but never documented.
+        """
+        import pathlib
+        import re
+        from tools.android_relay import _ROUTES
+
+        doc = pathlib.Path(__file__).resolve().parent.parent / "docs" / "architecture.md"
+        line = next(
+            l for l in doc.read_text(encoding="utf-8").splitlines()
+            if "HTTP bridge endpoints (method per path)" in l
+        )
+
+        def paths(section, terminator):
+            start = line.index(section) + len(section)
+            end = line.index(terminator, start) if terminator else len(line)
+            return re.findall(r"`([^`]+)`", line[start:end])
+
+        documented = {}
+        for path in paths("GET: ", ". POST:"):
+            documented[path] = "GET"
+        for path in paths("POST: ", ". Both:"):
+            documented[path] = "POST"
+        for path in paths("Both: ", None):
+            documented[path] = "BOTH"
+
+        assert documented == _ROUTES, (
+            "docs/architecture.md and the relay allowlist disagree — "
+            f"documented only: {sorted(set(documented) - set(_ROUTES))}, "
+            f"allowlisted only: {sorted(set(_ROUTES) - set(documented))}, "
+            "method mismatches: "
+            f"{sorted(p for p in set(documented) & set(_ROUTES) if documented[p] != _ROUTES[p])}"
+        )
+
+    def test_the_two_relay_copies_are_byte_identical(self):
+        """AGENTS.md requires the plugin copy to track tools/ exactly.
+
+        android_tool.py is allowed to differ (import path and registration
+        trailer); android_relay.py is not. Comparing bytes rather than
+        behaviour, because the rule is about the copies staying in step.
+        """
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        tools_copy = (root / "tools" / "android_relay.py").read_bytes()
+        plugin_copy = (root / "hermes-android-plugin" / "android_relay.py").read_bytes()
+
+        assert tools_copy == plugin_copy, (
+            "tools/android_relay.py and hermes-android-plugin/android_relay.py "
+            "have drifted; apply the same change to both"
+        )
