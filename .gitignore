@@ -42,3 +42,6 @@ hermes-android-bridge/local.properties
 00_PROJECT_MANIFEST.md
 CORE-OS/
 *_MANIFEST.md
+
+# local git worktrees (isolated agent/dev workspaces)
+.worktrees/

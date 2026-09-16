@@ -1,5 +1,6 @@
 import pytest
 import threading
+import time
 from tools.android_relay import (
     start_relay,
     stop_relay,
@@ -36,6 +37,34 @@ def reset_auth_state():
     with _auth_lock:
         _auth_blocked.clear()
         _auth_failures.clear()
+
+
+def _await_log_record(caplog, substring, timeout=5.0, poll=0.01):
+    """Wait for a captured log record containing `substring`; fail loudly if none.
+
+    The relay finalises a stream on its own background thread and its own
+    event loop, so its warning about that stream can land *after* the HTTP
+    client the test drives has already returned. Asserting on `caplog.records`
+    straight after the scenario therefore races the relay: the assertion is
+    right and the record simply has not been emitted yet.
+
+    Waiting on the condition rather than guessing a delay is what makes the
+    stream tests deterministic. A timeout raises with the records that *were*
+    seen, so a genuine regression still fails with something readable instead
+    of a bare `assert False`.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        for record in caplog.records:
+            if substring in record.getMessage():
+                return record
+        if time.monotonic() >= deadline:
+            seen = [record.getMessage() for record in caplog.records]
+            raise AssertionError(
+                f"no log record containing {substring!r} within {timeout}s; "
+                f"saw {len(seen)} record(s): {seen}"
+            )
+        time.sleep(poll)
 
 
 class TestRelayLifecycle:
@@ -390,14 +419,28 @@ class TestMicrophoneBinaryStreamNegative:
                         pass
                     await ws.close()
                     return
-                # expect == "teardown": headers may already be sent, but the
-                # body read must fail — never a silent truncated success.
+                # expect == "teardown": the client must never see a silent
+                # truncated success. Three outcomes all satisfy that, and
+                # which one happens depends on whether the relay processes
+                # the phone's disconnect before it commits the response:
+                #   - the connection dies before or with the headers,
+                #   - the headers arrive and the body read fails,
+                #   - the relay notices first and answers with an error status.
                 try:
                     response = await asyncio.wait_for(download, timeout=2)
-                    with pytest.raises(aiohttp.ClientError):
-                        await asyncio.wait_for(response.read(), timeout=2)
                 except aiohttp.ClientError:
-                    pass  # connection died before/with headers — also acceptable
+                    response = None  # died before/with headers
+                if response is not None:
+                    try:
+                        await asyncio.wait_for(response.read(), timeout=2)
+                    except aiohttp.ClientError:
+                        pass  # torn-down body — the intended outcome
+                    else:
+                        assert response.status >= 400, (
+                            "stream completed cleanly with status "
+                            f"{response.status}; a truncated success is the "
+                            "one outcome this test exists to prevent"
+                        )
                 await ws.close()
 
         asyncio.run(scenario())
@@ -441,7 +484,11 @@ class TestMicrophoneBinaryStreamNegative:
         # force-close rather than complete the stream cleanly.
         with caplog.at_level(logging.WARNING, logger="tools.android_relay"):
             self._run_stream_scenario(phone_play, expect="teardown-or-complete")
-        assert any("checksum mismatch" in r.message for r in caplog.records)
+            # The relay reaches this verdict on its own thread, after the
+            # client has returned — wait for it rather than racing it.
+            record = _await_log_record(caplog, "checksum mismatch")
+
+        assert "Recording stream checksum mismatch" in record.getMessage()
 
     def test_oversize_chunk_aborts_the_download(self):
         async def phone_play(ws, request_id):
@@ -498,9 +545,10 @@ class TestMicrophoneBinaryStreamNegative:
         # before the end event lies, so pin the server-side detection.
         with caplog.at_level(logging.WARNING, logger="tools.android_relay"):
             self._run_stream_scenario(phone_play, expect="teardown-or-complete")
-        assert any(
-            "length does not match" in r.message for r in caplog.records
-        )
+            # As above: the verdict is logged on the relay's own thread.
+            record = _await_log_record(caplog, "length does not match")
+
+        assert "Recording stream length does not match metadata" in record.getMessage()
 
     def test_declared_size_above_the_cap_is_rejected_up_front(self):
         from tools.android_relay import _MAX_STREAM_BYTES
@@ -556,3 +604,51 @@ class TestMicrophoneBinaryStreamNegative:
             await ws.close()  # phone vanishes mid-stream
 
         self._run_stream_scenario(phone_play, expect="teardown")
+
+
+class TestAwaitLogRecord:
+    """The wait helper the stream tests rely on must never pass silently.
+
+    These pin the helper itself, because the whole point of it is to turn a
+    lost race into a loud failure. A helper that returned happily when the
+    record never arrived would be worse than the bare assert it replaces.
+    """
+
+    LOGGER = "tools.android_relay"
+
+    def test_it_returns_the_record_that_is_already_there(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            logging.getLogger(self.LOGGER).warning("checksum mismatch seen")
+
+        record = _await_log_record(caplog, "checksum mismatch", timeout=1)
+
+        assert "checksum mismatch" in record.getMessage()
+
+    def test_it_waits_for_a_record_that_arrives_late(self, caplog):
+        """The race this exists for: the relay logs after the client returns.
+
+        A bare `assert any(...)` fails here; only waiting passes.
+        """
+        import logging
+
+        def emit_later():
+            time.sleep(0.2)
+            logging.getLogger(self.LOGGER).warning("late length does not match")
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            thread = threading.Thread(target=emit_later, daemon=True)
+            thread.start()
+            try:
+                record = _await_log_record(
+                    caplog, "length does not match", timeout=5
+                )
+            finally:
+                thread.join(timeout=5)
+
+        assert "length does not match" in record.getMessage()
+
+    def test_it_fails_loudly_when_the_record_never_arrives(self, caplog):
+        with pytest.raises(AssertionError, match="no log record containing"):
+            _await_log_record(caplog, "this is never logged", timeout=0.05)
