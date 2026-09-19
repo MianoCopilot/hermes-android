@@ -42,6 +42,7 @@ class HermesGatewayClient private constructor(context: Context) {
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile var state: State = State.Disconnected
         private set
