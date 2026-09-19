@@ -1,3 +1,10 @@
+## 0.7.0-native-agent
+
+- Target Android 16 / API 36.
+- Added PDF and arbitrary file attachments.
+- Added Android 16 edge-to-edge inset handling.
+- Updated Android Gradle Plugin and Gradle wrapper.
+
 ## 0.6.0-native-agent
 
 - Added native Hermes Gateway chat UI and session controls.
