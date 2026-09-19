@@ -499,7 +499,13 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
                         textToSpeech?.speak(assistantBuffer.toString(), TextToSpeech.QUEUE_FLUSH, null, "hermes-response")
                     }
                 }
-                "gateway.ready" -> updateUi()
+                "gateway.ready" -> {
+                    updateUi()
+                    val saved = prefs.getString("stored_session_id", null)
+                    if (sessionId == null && !saved.isNullOrBlank()) {
+                        scope.launch { resumeSession(saved) }
+                    }
+                }
             }
         }
     }
