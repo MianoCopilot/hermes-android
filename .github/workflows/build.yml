@@ -12,6 +12,10 @@ on:
       - 'hermes-android-bridge/**'
   workflow_dispatch:  # manual trigger
 
+concurrency:
+  group: android-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
