@@ -15,6 +15,7 @@ import java.util.Locale
 import com.google.gson.*
 import com.hermesandroid.bridge.R
 import com.hermesandroid.bridge.hermes.HermesGatewayClient
+import com.hermesandroid.bridge.hermes.TermuxGatewayStarter
 import kotlinx.coroutines.*
 
 class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
@@ -55,13 +56,24 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         ttsButton = findViewById(R.id.btnTts)
 
         gateway.listener = this
-        url.setText(gateway.gatewayUrl ?: "")
+        url.setText(gateway.gatewayUrl ?: "ws://127.0.0.1:9119")
         token.setText(gateway.gatewayToken ?: "")
         updateUi()
         if (prefs.getString("stored_session_id", null) != null) appendBubble("system", "Saved session available • tap RESUME")
 
         findViewById<Button>(R.id.btnDeviceBridge).setOnClickListener {
             startActivity(android.content.Intent(this, com.hermesandroid.bridge.MainActivity::class.java))
+        }
+
+        findViewById<Button>(R.id.btnStartLocalHermes).setOnClickListener {
+            url.setText("ws://127.0.0.1:9119")
+            if (!TermuxGatewayStarter.startLocalGateway(this)) {
+                toast("Could not start Ubuntu Hermes backend. Enable Termux external-command permission.")
+                return@setOnClickListener
+            }
+            gateway.configure(url.text.toString(), token.text.toString().takeIf { it.isNotBlank() })
+            gateway.connect()
+            toast("Starting hermes serve in Ubuntu on 127.0.0.1:9119...")
         }
 
         findViewById<Button>(R.id.btnGatewayConnect).setOnClickListener {
