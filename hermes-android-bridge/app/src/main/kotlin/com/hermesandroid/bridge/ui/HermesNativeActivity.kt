@@ -39,6 +39,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
     private var activeDialog: AlertDialog? = null
+    private var activeRequestId: JsonElement? = null
     private var lastToolLine: TextView? = null
     private val prefs by lazy { getSharedPreferences("hermes_native_session", MODE_PRIVATE) }
 
