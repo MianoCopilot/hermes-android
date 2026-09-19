@@ -44,6 +44,7 @@ class HermesGatewayClient private constructor(context: Context) {
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
+    private val heartbeatPings = ConcurrentHashMap.newKeySet<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile var state: State = State.Disconnected
@@ -55,7 +56,7 @@ class HermesGatewayClient private constructor(context: Context) {
     @Volatile private var shouldReconnect = false
     @Volatile private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
-    @Volatile private var lastInboundMs = 0L
+    @Volatile private var lastLivenessMs = 0L
     @Volatile private var heartbeatJob: Job? = null
 
     val gatewayUrl: String? get() = prefs.getString(KEY_URL, null)
@@ -96,14 +97,12 @@ class HermesGatewayClient private constructor(context: Context) {
 
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                lastInboundMs = System.currentTimeMillis()
+                lastLivenessMs = System.currentTimeMillis()
                 state = State.Connected
                 listener?.onStateChanged(state)
-                startHeartbeat()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                lastInboundMs = System.currentTimeMillis()
                 handleFrame(text)
             }
 
@@ -250,7 +249,12 @@ class HermesGatewayClient private constructor(context: Context) {
             return
         }
         val id = frame.get("id")
+        if (id != null && heartbeatPings.remove(id.asString)) {
+            lastLivenessMs = System.currentTimeMillis()
+            return
+        }
         if (id != null && pending.containsKey(id.asString)) {
+            lastLivenessMs = System.currentTimeMillis()
             pending[id.asString]?.complete(frame)
             return
         }
@@ -313,6 +317,7 @@ class HermesGatewayClient private constructor(context: Context) {
     private fun stopHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob = null
+        heartbeatPings.clear()
     }
 
     private fun buildSocketUrl(raw: String): String {
