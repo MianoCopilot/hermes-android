@@ -33,6 +33,8 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private lateinit var token: EditText
     private lateinit var voice: Button
     private lateinit var ttsButton: Button
+    private lateinit var steerInput: EditText
+    private lateinit var btnSteer: Button
     private lateinit var modelButton: Button
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -65,6 +67,8 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         token = findViewById(R.id.etGatewayToken)
         voice = findViewById(R.id.btnVoice)
         ttsButton = findViewById(R.id.btnTts)
+        steerInput = findViewById(R.id.etSteer)
+        btnSteer = findViewById(R.id.btnSteer)
         modelButton = findViewById(R.id.btnModel)
         selectedModel = prefs.getString("model", null)
         selectedProvider = prefs.getString("provider", null)
@@ -105,6 +109,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         findViewById<Button>(R.id.btnResumeSession).setOnClickListener { showSessions() }
         findViewById<Button>(R.id.btnImage).setOnClickListener { pickImage() }
         findViewById<Button>(R.id.btnUsage).setOnClickListener { showUsage() }
+        btnSteer.setOnClickListener { submitSteer() }
         voice.setOnClickListener { startVoiceInput() }
         ttsButton.setOnClickListener { ttsEnabled = !ttsEnabled; ttsButton.text = if (ttsEnabled) "TTS ON" else "TTS OFF" }
         modelButton.setOnClickListener { showModelPicker() }
@@ -324,6 +329,21 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
                 messages.removeAllViews()
                 renderHistory(history)
             }.onFailure { toast(it.message ?: "Could not resume session") }
+        }
+    }
+
+    private fun submitSteer() {
+        val sid = sessionId ?: run {
+            toast("Create or resume a Hermes session first")
+            return
+        }
+        val text = steerInput.text.toString().trim()
+        if (text.isBlank()) return
+        steerInput.text?.clear()
+        scope.launch {
+            runCatching { gateway.steer(sid, text) }
+                .onSuccess { toast("Steering instruction queued") }
+                .onFailure { toast(it.message ?: "Steer failed") }
         }
     }
 
