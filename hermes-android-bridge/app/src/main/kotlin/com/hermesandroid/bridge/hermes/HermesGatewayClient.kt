@@ -1,6 +1,7 @@
 package com.hermesandroid.bridge.hermes
 
 import android.content.Context
+import android.util.Base64
 import com.google.gson.*
 import kotlinx.coroutines.*
 import okhttp3.*
@@ -175,6 +176,21 @@ class HermesGatewayClient private constructor(context: Context) {
         val openRequests = result.getAsJsonArray("open_requests") ?: JsonArray()
         lastStoredSessionId = result.get("stored_session_id")?.asString ?: storedId
         return ResumeInfo(runtimeId, openRequests)
+    }
+
+    suspend fun attachImageBytes(sessionId: String, filename: String, bytes: ByteArray): JsonObject {
+        val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val frame = request("image.attach_bytes", JsonObject().apply {
+            addProperty("session_id", sessionId)
+            addProperty("filename", filename)
+            addProperty("content_base64", encoded)
+        })
+        return frame.getAsJsonObject("result") ?: JsonObject()
+    }
+
+    suspend fun usage(sessionId: String): JsonObject {
+        val frame = request("session.usage", JsonObject().apply { addProperty("session_id", sessionId) })
+        return frame.getAsJsonObject("result") ?: JsonObject()
     }
 
     suspend fun sendPrompt(sessionId: String, text: String) {
