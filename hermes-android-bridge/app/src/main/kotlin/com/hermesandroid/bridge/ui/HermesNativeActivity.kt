@@ -86,7 +86,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         scope.launch {
             runCatching {
                 sessionId = gateway.createSession()
-                prefs.edit().remove("stored_session_id").apply()
+                gateway.lastStoredSessionId?.let { prefs.edit().putString("stored_session_id", it).apply() }
                 messages.removeAllViews()
                 appendBubble("system", "New Hermes session")
             }.onFailure { toast(it.message ?: "Could not create session") }
@@ -125,9 +125,19 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private fun resumeSession(storedId: String) {
         scope.launch {
             runCatching {
-                sessionId = gateway.resumeSession(storedId)
-                prefs.edit().putString("stored_session_id", storedId).apply()
+                val resume = gateway.resumeSessionInfo(storedId)
+                sessionId = resume.runtimeId
+                prefs.edit().putString("stored_session_id", gateway.lastStoredSessionId ?: storedId).apply()
                 val history = gateway.history(sessionId!!)
+                resume.openRequests.forEach { request ->
+                    if (request.isJsonObject) {
+                        val requestObject = request.asJsonObject
+                        val requestId = requestObject.get("id") ?: return@forEach
+                        val requestMethod = requestObject.get("method")?.asString ?: return@forEach
+                        val requestParams = requestObject.getAsJsonObject("params") ?: JsonObject()
+                        onServerRequest(requestId, requestMethod, requestParams)
+                    }
+                }
                 messages.removeAllViews()
                 renderHistory(history)
             }.onFailure { toast(it.message ?: "Could not resume session") }
@@ -141,7 +151,10 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         appendBubble("user", text)
         scope.launch {
             runCatching {
-                val sid = sessionId ?: gateway.createSession().also { sessionId = it }
+                val sid = sessionId ?: gateway.createSession().also {
+                    sessionId = it
+                    gateway.lastStoredSessionId?.let { stored -> prefs.edit().putString("stored_session_id", stored).apply() }
+                }
                 assistantBuffer.setLength(0)
                 currentAssistant = appendBubble("assistant", "")
                 gateway.sendPrompt(sid, text)
