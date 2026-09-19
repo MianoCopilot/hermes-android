@@ -154,6 +154,7 @@ class HermesGatewayClient private constructor(context: Context) {
         reconnectJob = null
         stopHeartbeat()
         closeSocketOnly()
+        respondedRequests.clear()
         state = State.Disconnected
         listener?.onStateChanged(state)
         failPending("Gateway disconnected")
