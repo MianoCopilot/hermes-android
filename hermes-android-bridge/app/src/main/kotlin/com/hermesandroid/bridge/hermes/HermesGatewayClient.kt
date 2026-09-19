@@ -64,12 +64,12 @@ class HermesGatewayClient private constructor(context: Context) {
         prefs.edit().putString(KEY_URL, url.trim()).putString(KEY_TOKEN, token?.trim()).apply()
     }
 
-    fun connect() {
+    fun connect(resetBackoff: Boolean = true) {
         reconnectJob?.cancel()
         reconnectJob = null
         disconnect()
         shouldReconnect = true
-        reconnectAttempt = 0
+        if (resetBackoff) reconnectAttempt = 0
         val raw = gatewayUrl?.trim().orEmpty()
         if (raw.isBlank()) return emitError("Gateway URL is empty")
         state = State.Connecting
@@ -292,7 +292,7 @@ class HermesGatewayClient private constructor(context: Context) {
         reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(5)
         reconnectJob = scope.launch {
             delay(delayMs)
-            if (shouldReconnect) connect()
+            if (shouldReconnect) connect(resetBackoff = false)
         }
     }
 
