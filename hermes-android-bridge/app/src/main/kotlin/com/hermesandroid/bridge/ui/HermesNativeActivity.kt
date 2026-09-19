@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.os.Bundle
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -12,6 +13,7 @@ import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.widget.*
 import java.util.Locale
+import java.io.ByteArrayOutputStream
 import com.google.gson.*
 import com.hermesandroid.bridge.R
 import com.hermesandroid.bridge.hermes.HermesGatewayClient
@@ -42,6 +44,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private var activeRequestId: JsonElement? = null
     private var lastToolLine: TextView? = null
     private val prefs by lazy { getSharedPreferences("hermes_native_session", MODE_PRIVATE) }
+    private val IMAGE_PICK_REQUEST = 5101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,11 +90,90 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         }
         findViewById<Button>(R.id.btnNewSession).setOnClickListener { newSession() }
         findViewById<Button>(R.id.btnResumeSession).setOnClickListener { showSessions() }
+        findViewById<Button>(R.id.btnImage).setOnClickListener { pickImage() }
+        findViewById<Button>(R.id.btnUsage).setOnClickListener { showUsage() }
         voice.setOnClickListener { startVoiceInput() }
         ttsButton.setOnClickListener { ttsEnabled = !ttsEnabled; ttsButton.text = if (ttsEnabled) "TTS ON" else "TTS OFF" }
         initSpeech()
         textToSpeech = TextToSpeech(this) { result ->
             if (result == TextToSpeech.SUCCESS) textToSpeech?.language = Locale.getDefault()
+        }
+    }
+
+    private fun pickImage() {
+        if (sessionId == null) {
+            toast("Create or resume a Hermes session first")
+            return
+        }
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        runCatching { startActivityForResult(intent, IMAGE_PICK_REQUEST) }
+            .onFailure { error -> toast("Could not open image picker: " + error.message) }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != IMAGE_PICK_REQUEST || resultCode != RESULT_OK) return
+        val imageUri = data?.data ?: return
+        attachImage(imageUri)
+    }
+
+    private fun attachImage(uri: Uri) {
+        val sid = sessionId ?: return
+        scope.launch {
+            runCatching {
+                val filename = queryDisplayName(uri) ?: "image.jpg"
+                val bytes = contentResolver.openInputStream(uri)?.use { input ->
+                    val out = ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        if (read > 0) out.write(buffer, 0, read)
+                        if (out.size() > 12 * 1024 * 1024) {
+                            throw IllegalStateException("Image is larger than 12 MB")
+                        }
+                    }
+                    out.toByteArray()
+                } ?: throw IllegalStateException("Could not read image")
+                val result = gateway.attachImageBytes(sid, filename, bytes)
+                runOnUiThread {
+                    val label = result.get("text")?.asString ?: result.get("message")?.asString ?: "Image attached"
+                    appendBubble("system", "🖼 " + label)
+                }
+            }.onFailure { error -> toast(error.message ?: "Image attach failed") }
+        }
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        val projection = arrayOf(android.provider.OpenableColumns.DISPLAY_NAME)
+        contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) return cursor.getString(0)
+        }
+        return null
+    }
+
+    private fun showUsage() {
+        val sid = sessionId ?: run {
+            toast("No active Hermes session")
+            return
+        }
+        scope.launch {
+            runCatching {
+                val usage = gateway.usage(sid)
+                val lines = usage.entrySet().map { entry -> entry.key + ": " + entry.value.toString() }
+                runOnUiThread {
+                    AlertDialog.Builder(this@HermesNativeActivity)
+                        .setTitle("Session usage")
+                        .setMessage(lines.joinToString("
+").ifBlank { "No usage data" })
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }.onFailure { error -> toast(error.message ?: "Could not read usage") }
         }
     }
 
