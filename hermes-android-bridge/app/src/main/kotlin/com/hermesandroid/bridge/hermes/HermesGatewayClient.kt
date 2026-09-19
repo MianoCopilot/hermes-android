@@ -63,12 +63,13 @@ class HermesGatewayClient private constructor(context: Context) {
     }
 
     fun connect() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        disconnect()
         shouldReconnect = true
         reconnectAttempt = 0
-        reconnectJob?.cancel()
         val raw = gatewayUrl?.trim().orEmpty()
         if (raw.isBlank()) return emitError("Gateway URL is empty")
-        disconnect()
         state = State.Connecting
         listener?.onStateChanged(state)
 
@@ -292,17 +293,6 @@ class HermesGatewayClient private constructor(context: Context) {
             else -> "ws://" + url
         }
         return if (url.contains("/api/ws")) url else url + "/api/ws"
-    }
-
-    private fun normalizeWebSocketUrl(raw: String): String {
-        var url = raw.trim().trimEnd('/')
-        url = when {
-            url.startsWith("https://") -> "wss://" + url.removePrefix("https://")
-            url.startsWith("http://") -> "ws://" + url.removePrefix("http://")
-            url.startsWith("wss://") || url.startsWith("ws://") -> url
-            else -> "ws://$url"
-        }
-        return if (url.endsWith("/api/ws")) url else "$url/api/ws"
     }
 
     private fun failPending(message: String) {
