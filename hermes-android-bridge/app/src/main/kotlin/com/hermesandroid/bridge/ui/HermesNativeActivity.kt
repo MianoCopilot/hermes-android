@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.os.Bundle
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.speech.RecognitionListener
@@ -14,6 +15,8 @@ import android.view.Gravity
 import android.widget.*
 import java.util.Locale
 import java.io.ByteArrayOutputStream
+import java.security.SecureRandom
+import android.util.Base64
 import com.google.gson.*
 import com.hermesandroid.bridge.R
 import com.hermesandroid.bridge.hermes.HermesGatewayClient
@@ -71,13 +74,15 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
 
         findViewById<Button>(R.id.btnStartLocalHermes).setOnClickListener {
             url.setText("ws://127.0.0.1:9119")
-            if (!TermuxGatewayStarter.startLocalGateway(this)) {
+            val localToken = generateLocalGatewayToken()
+            token.setText(localToken)
+            if (!TermuxGatewayStarter.startLocalGateway(this, localToken)) {
                 toast("Could not start Ubuntu Hermes backend. Enable Termux external-command permission.")
                 return@setOnClickListener
             }
-            gateway.configure(url.text.toString(), token.text.toString().takeIf { it.isNotBlank() })
+            gateway.configure(url.text.toString(), localToken)
             gateway.connect()
-            toast("Starting hermes serve in Ubuntu on 127.0.0.1:9119...")
+            toast("Starting Hermes Agent in Ubuntu on 127.0.0.1:9119...")
         }
 
         findViewById<Button>(R.id.btnGatewayConnect).setOnClickListener {
@@ -168,8 +173,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
                 runOnUiThread {
                     AlertDialog.Builder(this@HermesNativeActivity)
                         .setTitle("Session usage")
-                        .setMessage(lines.joinToString("
-").ifBlank { "No usage data" })
+                        .setMessage(lines.joinToString("\n").ifBlank { "No usage data" })
                         .setPositiveButton("OK", null)
                         .show()
                 }
@@ -281,15 +285,27 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
 
     private fun renderHistory(history: JsonArray) {
         history.forEach { item ->
+            if (!item.isJsonObject) return@forEach
             val o = item.asJsonObject
             val role = o.get("role")?.asString ?: "assistant"
-            val text = when {
-                o.get("content")?.isJsonPrimitive == true -> o.get("content").asString
-                o.get("text")?.isJsonPrimitive == true -> o.get("text").asString
+            val text = o.get("text")?.asString
+                ?: o.get("content")?.takeIf { it.isJsonPrimitive }?.asString
+                ?: ""
+            val displayKind = o.get("display_kind")?.asString.orEmpty()
+            val name = o.get("name")?.asString.orEmpty()
+            val rendered = when {
+                displayKind == "tool" && name.isNotBlank() -> "⚙ $name" + if (text.isNotBlank()) " • $text" else ""
+                text.isNotBlank() -> text
                 else -> ""
             }
-            if (text.isNotBlank()) appendBubble(role, text)
+            if (rendered.isNotBlank()) appendBubble(role.ifBlank { "assistant" }, rendered)
         }
+    }
+
+    private fun generateLocalGatewayToken(): String {
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     }
 
     private fun initSpeech() {
