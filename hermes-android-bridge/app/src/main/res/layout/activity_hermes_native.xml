@@ -101,6 +101,13 @@
             android:text="RESUME"
             android:textAllCaps="false" />
         <Button
+            android:id="@+id/btnImage"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="IMG"
+            android:textAllCaps="false" />
+        <Button
             android:id="@+id/btnVoice"
             android:layout_width="0dp"
             android:layout_height="44dp"
@@ -113,6 +120,13 @@
             android:layout_height="44dp"
             android:layout_weight="1"
             android:text="TTS ON"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnUsage"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="USAGE"
             android:textAllCaps="false" />
     </LinearLayout>
 
