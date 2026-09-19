@@ -97,7 +97,6 @@ class HermesGatewayClient private constructor(context: Context) {
 
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                lastLivenessMs = System.currentTimeMillis()
                 state = State.Connected
                 listener?.onStateChanged(state)
             }
@@ -283,6 +282,9 @@ class HermesGatewayClient private constructor(context: Context) {
             val eventType = eventParams.get("type")?.asString ?: return
             val payload = eventParams.getAsJsonObject("payload") ?: JsonObject()
             if (eventType == "gateway.ready") {
+                if (payload.get("heartbeat")?.asBoolean == true) {
+                    startHeartbeat()
+                }
                 scope.launch {
                     runCatching {
                         request(
