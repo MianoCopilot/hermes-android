@@ -69,6 +69,33 @@
             android:orientation="vertical" />
     </ScrollView>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Button
+            android:id="@+id/btnResumeSession"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="RESUME"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnVoice"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="MIC"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnTts"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="TTS ON"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
     <EditText
         android:id="@+id/etPrompt"
         android:layout_width="match_parent"
