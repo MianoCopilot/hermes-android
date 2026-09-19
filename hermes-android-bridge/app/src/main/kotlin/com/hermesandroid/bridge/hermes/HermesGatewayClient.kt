@@ -45,7 +45,6 @@ class HermesGatewayClient private constructor(context: Context) {
         .build()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private val respondedRequests = ConcurrentHashMap.newKeySet<String>()
-    private val heartbeatPings = ConcurrentHashMap.newKeySet<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile var state: State = State.Disconnected
@@ -58,7 +57,6 @@ class HermesGatewayClient private constructor(context: Context) {
     @Volatile private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
     @Volatile private var heartbeatJob: Job? = null
-    @Volatile private var lastLivenessMs = 0L
 
     val gatewayUrl: String? get() = prefs.getString(KEY_URL, null)
     val gatewayToken: String? get() = prefs.getString(KEY_TOKEN, null)
@@ -277,7 +275,6 @@ class HermesGatewayClient private constructor(context: Context) {
         if (id != null && pending.containsKey(id.asString)) {
             lastLivenessMs = System.currentTimeMillis()
             pending[id.asString]?.complete(frame)
-            lastLivenessMs = System.currentTimeMillis()
             return
         }
         if (frame.get("method")?.asString == "event") {
@@ -313,21 +310,15 @@ class HermesGatewayClient private constructor(context: Context) {
             while (isActive && state == State.Connected) {
                 delay(15_000L)
                 if (!isActive || state != State.Connected) break
-                if (System.currentTimeMillis() - lastLivenessMs > 45_000L) {
-                    emitError("Gateway heartbeat timeout")
-                    socket?.cancel()
-                    break
-                }
                 val ws = socket ?: break
                 val pingId = "heartbeat-" + UUID.randomUUID().toString()
-                heartbeatPings.add(pingId)
-                if (!ws.send(JsonObject().apply {
+                val sent = ws.send(JsonObject().apply {
                     addProperty("jsonrpc", "2.0")
                     addProperty("id", pingId)
-                    addProperty("method", "gateway.ping")
+                    addProperty("method", "ping")
                     add("params", JsonObject())
-                }.toString())) {
-                    heartbeatPings.remove(pingId)
+                }.toString())
+                if (!sent) {
                     emitError("Gateway heartbeat send failed")
                     ws.cancel()
                     break
