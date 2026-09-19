@@ -45,7 +45,6 @@ class HermesGatewayClient private constructor(context: Context) {
         .build()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private val respondedRequests = ConcurrentHashMap.newKeySet<String>()
-    private val heartbeatPings = ConcurrentHashMap.newKeySet<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile var state: State = State.Disconnected
@@ -320,39 +319,22 @@ class HermesGatewayClient private constructor(context: Context) {
 
     private fun startHeartbeat() {
         stopHeartbeat()
-        lastLivenessMs = System.currentTimeMillis()
         heartbeatJob = scope.launch {
             while (isActive && state == State.Connected) {
                 delay(15_000L)
                 if (!isActive || state != State.Connected) break
-                if (System.currentTimeMillis() - lastLivenessMs > 45_000L) {
-                    emitError("Gateway heartbeat timeout")
+                runCatching {
+                    request("ping", JsonObject(), 10_000L)
+                }.onFailure { error ->
+                    emitError("Gateway heartbeat failed: ${error.message ?: "timeout"}")
                     socket?.cancel()
-                    break
-                }
-                val ws = socket ?: break
-                val pingId = "heartbeat-" + UUID.randomUUID().toString()
-                heartbeatPings.add(pingId)
-                val sent = ws.send(JsonObject().apply {
-                    addProperty("jsonrpc", "2.0")
-                    addProperty("id", pingId)
-                    addProperty("method", "gateway.ping")
-                    add("params", JsonObject())
-                }.toString())
-                if (!sent) {
-                    heartbeatPings.remove(pingId)
-                    emitError("Gateway heartbeat send failed")
-                    ws.cancel()
-                    break
                 }
             }
         }
-    }
 
     private fun stopHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob = null
-        heartbeatPings.clear()
     }
 
     @Synchronized
