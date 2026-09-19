@@ -33,6 +33,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private lateinit var token: EditText
     private lateinit var voice: Button
     private lateinit var ttsButton: Button
+    private lateinit var modelButton: Button
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val gateway by lazy { HermesGatewayClient.get(applicationContext) }
@@ -41,6 +42,9 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private var currentReasoning: TextView? = null
     private val assistantBuffer = StringBuilder()
     private var ttsEnabled = true
+    private var selectedModel: String? = null
+    private var selectedProvider: String? = null
+    private var selectedReasoning: String = "inherit"
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
     private var activeDialog: AlertDialog? = null
@@ -61,6 +65,10 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         token = findViewById(R.id.etGatewayToken)
         voice = findViewById(R.id.btnVoice)
         ttsButton = findViewById(R.id.btnTts)
+        modelButton = findViewById(R.id.btnModel)
+        selectedModel = prefs.getString("model", null)
+        selectedProvider = prefs.getString("provider", null)
+        selectedReasoning = prefs.getString("reasoning_effort", "inherit") ?: "inherit"
 
         gateway.listener = this
         url.setText(gateway.gatewayUrl ?: "ws://127.0.0.1:9119")
@@ -99,10 +107,12 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         findViewById<Button>(R.id.btnUsage).setOnClickListener { showUsage() }
         voice.setOnClickListener { startVoiceInput() }
         ttsButton.setOnClickListener { ttsEnabled = !ttsEnabled; ttsButton.text = if (ttsEnabled) "TTS ON" else "TTS OFF" }
+        modelButton.setOnClickListener { showModelPicker() }
         initSpeech()
         textToSpeech = TextToSpeech(this) { result ->
             if (result == TextToSpeech.SUCCESS) textToSpeech?.language = Locale.getDefault()
         }
+        updateModelButton()
     }
 
     private fun pickImage() {
@@ -161,6 +171,80 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         return null
     }
 
+    private fun showModelPicker() {
+        scope.launch {
+            runCatching {
+                val providers = gateway.modelOptions()
+                val items = mutableListOf<Pair<String, Pair<String, String>>>()
+                providers.forEach { providerJson ->
+                    if (!providerJson.isJsonObject) return@forEach
+                    val provider = providerJson.asJsonObject
+                    val slug = provider.get("slug")?.asString.orEmpty()
+                    val providerName = provider.get("name")?.asString?.takeIf { it.isNotBlank() } ?: slug
+                    provider.getAsJsonArray("models")?.forEach { model ->
+                        val modelName = model.asString
+                        if (modelName.isNotBlank()) {
+                            items += (providerName + " / " + modelName) to (slug to modelName)
+                        }
+                    }
+                }
+                val visible = items.distinctBy { it.second }.take(80)
+                val labels = visible.map { it.first }.toTypedArray()
+                runOnUiThread {
+                    val choices = arrayOf("INHERIT", "LOW", "MEDIUM", "HIGH")
+                    AlertDialog.Builder(this@HermesNativeActivity)
+                        .setTitle("Hermes model")
+                        .setSingleChoiceItems(
+                            labels,
+                            visible.indexOfFirst { it.second.second == selectedModel && it.second.first == selectedProvider }.coerceAtLeast(-1)
+                        ) { dialog, which ->
+                            selectedProvider = visible[which].second.first
+                            selectedModel = visible[which].second.second
+                            dialog.dismiss()
+                            showReasoningPicker()
+                        }
+                        .setNeutralButton("INHERIT") { _, _ ->
+                            selectedProvider = null
+                            selectedModel = null
+                            selectedReasoning = "inherit"
+                            persistModelSelection()
+                            updateModelButton()
+                        }
+                        .show()
+                }
+            }.onFailure { error -> toast(error.message ?: "Could not load models") }
+        }
+    }
+
+    private fun showReasoningPicker() {
+        val options = arrayOf("inherit", "low", "medium", "high")
+        val checked = options.indexOf(selectedReasoning).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Reasoning effort")
+            .setSingleChoiceItems(options, checked) { dialog, which ->
+                selectedReasoning = options[which]
+                persistModelSelection()
+                updateModelButton()
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun persistModelSelection() {
+        prefs.edit()
+            .putString("model", selectedModel)
+            .putString("provider", selectedProvider)
+            .putString("reasoning_effort", selectedReasoning)
+            .apply()
+    }
+
+    private fun updateModelButton() {
+        modelButton.text = when {
+            selectedModel.isNullOrBlank() -> "MODEL"
+            else -> selectedModel!!.take(12)
+        }
+    }
+
     private fun showUsage() {
         val sid = sessionId ?: run {
             toast("No active Hermes session")
@@ -184,7 +268,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private fun newSession() {
         scope.launch {
             runCatching {
-                sessionId = gateway.createSession()
+                sessionId = gateway.createSession(selectedModel, selectedProvider, selectedReasoning)
                 gateway.lastStoredSessionId?.let { prefs.edit().putString("stored_session_id", it).apply() }
                 messages.removeAllViews()
                 appendBubble("system", "New Hermes session")
@@ -250,7 +334,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         appendBubble("user", text)
         scope.launch {
             runCatching {
-                val sid = sessionId ?: gateway.createSession().also {
+                val sid = sessionId ?: gateway.createSession(selectedModel, selectedProvider, selectedReasoning).also {
                     sessionId = it
                     gateway.lastStoredSessionId?.let { stored -> prefs.edit().putString("stored_session_id", stored).apply() }
                 }
