@@ -2,14 +2,28 @@ package com.hermesandroid.bridge.hermes
 
 import android.content.Context
 import android.util.Base64
-import com.google.gson.*
-import kotlinx.coroutines.*
-import okhttp3.*
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import java.net.URLEncoder
-
 
 class HermesGatewayClient private constructor(context: Context) {
     sealed interface State {
@@ -31,6 +45,8 @@ class HermesGatewayClient private constructor(context: Context) {
         private const val KEY_URL = "gateway_url"
         private const val KEY_TOKEN = "gateway_token"
         private const val DEFAULT_TIMEOUT_MS = 120_000L
+        private const val HEARTBEAT_INTERVAL_MS = 15_000L
+        private const val HEARTBEAT_DEADLINE_MS = 45_000L
         @Volatile private var instance: HermesGatewayClient? = null
 
         fun get(context: Context): HermesGatewayClient =
@@ -40,12 +56,11 @@ class HermesGatewayClient private constructor(context: Context) {
     }
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private val client = OkHttpClient.Builder()
-        .pingInterval(20, TimeUnit.SECONDS)
-        .build()
+    private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private val respondedRequests = ConcurrentHashMap.newKeySet<String>()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val heartbeatPings = ConcurrentHashMap.newKeySet<String>()
 
     @Volatile var state: State = State.Disconnected
         private set
@@ -55,8 +70,9 @@ class HermesGatewayClient private constructor(context: Context) {
         private set
     @Volatile private var shouldReconnect = false
     @Volatile private var reconnectJob: Job? = null
-    private var reconnectAttempt = 0
     @Volatile private var heartbeatJob: Job? = null
+    @Volatile private var lastLivenessMs = 0L
+    private var reconnectAttempt = 0
 
     val gatewayUrl: String? get() = prefs.getString(KEY_URL, null)
     val gatewayToken: String? get() = prefs.getString(KEY_TOKEN, null)
@@ -68,12 +84,17 @@ class HermesGatewayClient private constructor(context: Context) {
     fun connect(resetBackoff: Boolean = true) {
         reconnectJob?.cancel()
         reconnectJob = null
-        disconnect()
-        respondedRequests.clear()
         shouldReconnect = true
         if (resetBackoff) reconnectAttempt = 0
+        stopHeartbeat()
+        closeSocketOnly()
+
         val raw = gatewayUrl?.trim().orEmpty()
-        if (raw.isBlank()) return emitError("Gateway URL is empty")
+        if (raw.isBlank()) {
+            emitError("Gateway URL is empty")
+            return
+        }
+
         state = State.Connecting
         listener?.onStateChanged(state)
 
@@ -91,37 +112,40 @@ class HermesGatewayClient private constructor(context: Context) {
             socketUrl
         }
 
-        val request = Request.Builder()
-            .url(authenticatedUrl)
-            .build()
-
-        socket = client.newWebSocket(request, object : WebSocketListener() {
+        val request = Request.Builder().url(authenticatedUrl).build()
+        val newSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                socket = webSocket
+                lastLivenessMs = System.currentTimeMillis()
                 state = State.Connected
                 listener?.onStateChanged(state)
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (socket !== webSocket) return
                 handleFrame(text)
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (socket !== webSocket && socket != null) return
                 stopHeartbeat()
                 socket = null
-                emitError("Gateway WebSocket failed: ${t.message ?: "unknown error"}")
+                emitError("Gateway WebSocket failed: " + (t.message ?: "unknown error"))
                 failPending("Gateway failed")
                 scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (socket !== webSocket && socket != null) return
                 stopHeartbeat()
                 socket = null
                 state = State.Disconnected
                 listener?.onStateChanged(state)
-                failPending("Gateway closed: $code $reason")
+                failPending("Gateway closed: " + code + " " + reason)
                 scheduleReconnect()
             }
         })
+        socket = newSocket
     }
 
     fun disconnect() {
@@ -129,8 +153,7 @@ class HermesGatewayClient private constructor(context: Context) {
         reconnectJob?.cancel()
         reconnectJob = null
         stopHeartbeat()
-        socket?.close(1000, "client disconnect")
-        socket = null
+        closeSocketOnly()
         state = State.Disconnected
         listener?.onStateChanged(state)
         failPending("Gateway disconnected")
@@ -139,6 +162,7 @@ class HermesGatewayClient private constructor(context: Context) {
     suspend fun request(method: String, params: JsonObject = JsonObject(), timeoutMs: Long = DEFAULT_TIMEOUT_MS): JsonObject {
         val ws = socket ?: throw IllegalStateException("Gateway is not connected")
         if (state != State.Connected) throw IllegalStateException("Gateway is not connected")
+
         val id = UUID.randomUUID().toString()
         val deferred = CompletableDeferred<JsonObject>()
         pending[id] = deferred
@@ -155,79 +179,65 @@ class HermesGatewayClient private constructor(context: Context) {
         }
 
         return try {
-            withTimeout(timeoutMs) { deferred.await() }.also {
-                it.get("error")?.let { error -> throw IllegalStateException(error.toString()) }
+            withTimeout(timeoutMs) { deferred.await() }.also { response ->
+                response.get("error")?.let { error ->
+                    val message = if (error.isJsonObject) error.asJsonObject.get("message")?.asString else null
+                    throw IllegalStateException(message ?: error.toString())
+                }
             }
         } finally {
             pending.remove(id)
         }
     }
 
-    suspend fun createSession(
-        model: String? = null,
-        provider: String? = null,
-        reasoningEffort: String? = null
-    ): String {
+    suspend fun createSession(model: String? = null, provider: String? = null, reasoningEffort: String? = null): String {
         val params = JsonObject().apply {
             model?.takeIf { it.isNotBlank() }?.let { addProperty("model", it) }
             provider?.takeIf { it.isNotBlank() }?.let { addProperty("provider", it) }
-            reasoningEffort?.takeIf { it.isNotBlank() && !it.equals("inherit", true) }?.let {
-                addProperty("reasoning_effort", it)
-            }
+            reasoningEffort?.takeIf { it.isNotBlank() && !it.equals("inherit", true) }?.let { addProperty("reasoning_effort", it) }
         }
-        val frame = request("session.create", params)
-        val result = frame.getAsJsonObject("result")
+        val result = request("session.create", params).getAsJsonObject("result")
             ?: throw IllegalStateException("Gateway did not return session result")
         lastStoredSessionId = result.get("stored_session_id")?.asString
-        return result.get("session_id")?.asString
-            ?: throw IllegalStateException("Gateway did not return session_id")
+        return result.get("session_id")?.asString ?: throw IllegalStateException("Gateway did not return session_id")
     }
 
     suspend fun modelOptions(): JsonArray {
-        val frame = request("model.options")
-        return frame.getAsJsonObject("result")?.getAsJsonArray("providers") ?: JsonArray()
+        val result = request("model.options").getAsJsonObject("result") ?: return JsonArray()
+        return result.getAsJsonArray("providers") ?: JsonArray()
     }
 
     data class ResumeInfo(val runtimeId: String, val openRequests: JsonArray)
 
     suspend fun resumeSessionInfo(storedId: String): ResumeInfo {
-        val frame = request("session.resume", JsonObject().apply { addProperty("session_id", storedId) })
-        val result = frame.getAsJsonObject("result") ?: throw IllegalStateException("Gateway did not return resume result")
-        val runtimeId = result.get("session_id")?.asString
-            ?: throw IllegalStateException("Gateway did not return runtime session_id")
-        val openRequests = result.getAsJsonArray("open_requests") ?: JsonArray()
+        val result = request("session.resume", JsonObject().apply { addProperty("session_id", storedId) })
+            .getAsJsonObject("result") ?: throw IllegalStateException("Gateway did not return resume result")
         lastStoredSessionId = result.get("stored_session_id")?.asString ?: storedId
+        val runtimeId = result.get("session_id")?.asString ?: throw IllegalStateException("Gateway did not return runtime session_id")
+        val openRequests = result.getAsJsonArray("open_requests") ?: JsonArray()
         return ResumeInfo(runtimeId, openRequests)
     }
 
     suspend fun attachImageBytes(sessionId: String, filename: String, bytes: ByteArray): JsonObject {
-        val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        val frame = request("image.attach_bytes", JsonObject().apply {
+        val result = request("image.attach_bytes", JsonObject().apply {
             addProperty("session_id", sessionId)
             addProperty("filename", filename)
-            addProperty("content_base64", encoded)
-        })
-        return frame.getAsJsonObject("result") ?: JsonObject()
+            addProperty("content_base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+        }).getAsJsonObject("result")
+        return result ?: JsonObject()
     }
 
-    suspend fun usage(sessionId: String): JsonObject {
-        val frame = request("session.usage", JsonObject().apply { addProperty("session_id", sessionId) })
-        return frame.getAsJsonObject("result") ?: JsonObject()
-    }
+    suspend fun usage(sessionId: String): JsonObject =
+        request("session.usage", JsonObject().apply { addProperty("session_id", sessionId) })
+            .getAsJsonObject("result") ?: JsonObject()
 
-    suspend fun voiceTts(text: String): JsonObject {
-        val frame = request("voice.tts", JsonObject().apply {
-            addProperty("text", text)
-        }, 60_000L)
-        return frame.getAsJsonObject("result") ?: JsonObject()
-    }
+    suspend fun voiceTts(text: String): JsonObject =
+        request("voice.tts", JsonObject().apply { addProperty("text", text) }, 60_000L)
+            .getAsJsonObject("result") ?: JsonObject()
 
-    suspend fun voiceToggle(action: String): JsonObject {
-        val frame = request("voice.toggle", JsonObject().apply {
-            addProperty("action", action)
-        }, 20_000L)
-        return frame.getAsJsonObject("result") ?: JsonObject()
-    }
+    suspend fun voiceToggle(action: String): JsonObject =
+        request("voice.toggle", JsonObject().apply { addProperty("action", action) }, 20_000L)
+            .getAsJsonObject("result") ?: JsonObject()
 
     suspend fun sendPrompt(sessionId: String, text: String) {
         request("prompt.submit", JsonObject().apply {
@@ -251,15 +261,13 @@ class HermesGatewayClient private constructor(context: Context) {
         request("session.activate", JsonObject().apply { addProperty("session_id", sessionId) })
     }
 
-    suspend fun history(sessionId: String): JsonArray {
-        val frame = request("session.history", JsonObject().apply { addProperty("session_id", sessionId) })
-        return frame.getAsJsonObject("result")?.getAsJsonArray("messages") ?: JsonArray()
-    }
+    suspend fun history(sessionId: String): JsonArray =
+        request("session.history", JsonObject().apply { addProperty("session_id", sessionId) })
+            .getAsJsonObject("result")?.getAsJsonArray("messages") ?: JsonArray()
 
-    suspend fun sessions(): JsonArray {
-        val frame = request("session.list")
-        return frame.getAsJsonObject("result")?.getAsJsonArray("sessions") ?: JsonArray()
-    }
+    suspend fun sessions(): JsonArray =
+        request("session.list", JsonObject().apply { addProperty("limit", 50) })
+            .getAsJsonObject("result")?.getAsJsonArray("sessions") ?: JsonArray()
 
     fun respond(id: JsonElement, result: JsonObject? = null, error: JsonObject? = null) {
         val key = id.toString()
@@ -273,10 +281,7 @@ class HermesGatewayClient private constructor(context: Context) {
                 else -> add("result", JsonObject())
             }
         }.toString()
-        val sent = socket?.send(payload) ?: run {
-            respondedRequests.remove(key)
-            return
-        }
+        val sent = socket?.send(payload) ?: false
         if (!sent) respondedRequests.remove(key)
     }
 
@@ -286,7 +291,12 @@ class HermesGatewayClient private constructor(context: Context) {
             return
         }
         val id = frame.get("id")
+        if (id != null && heartbeatPings.remove(id.asString)) {
+            lastLivenessMs = System.currentTimeMillis()
+            return
+        }
         if (id != null && pending.containsKey(id.asString)) {
+            lastLivenessMs = System.currentTimeMillis()
             pending[id.asString]?.complete(frame)
             return
         }
@@ -295,16 +305,10 @@ class HermesGatewayClient private constructor(context: Context) {
             val eventType = eventParams.get("type")?.asString ?: return
             val payload = eventParams.getAsJsonObject("payload") ?: JsonObject()
             if (eventType == "gateway.ready") {
-                if (payload.get("heartbeat")?.asBoolean == true) {
-                    startHeartbeat()
-                }
+                if (payload.get("heartbeat")?.asBoolean == true) startHeartbeat()
                 scope.launch {
                     runCatching {
-                        request(
-                            "client.capabilities",
-                            JsonObject().apply { addProperty("server_requests", true) },
-                            10_000L
-                        )
+                        request("client.capabilities", JsonObject().apply { addProperty("server_requests", true) }, 10_000L)
                     }
                 }
             }
@@ -313,37 +317,53 @@ class HermesGatewayClient private constructor(context: Context) {
         }
         val method = frame.get("method")?.asString ?: return
         val params = frame.getAsJsonObject("params") ?: JsonObject()
-        if (id != null) listener?.onServerRequest(id, method, params)
-        else listener?.onEvent(method, params)
+        if (id != null) listener?.onServerRequest(id, method, params) else listener?.onEvent(method, params)
     }
 
     private fun startHeartbeat() {
         stopHeartbeat()
+        lastLivenessMs = System.currentTimeMillis()
         heartbeatJob = scope.launch {
             while (isActive && state == State.Connected) {
-                delay(15_000L)
+                delay(HEARTBEAT_INTERVAL_MS)
                 if (!isActive || state != State.Connected) break
-                runCatching {
-                    request("ping", JsonObject(), 10_000L)
-                }.onFailure { error ->
-                    emitError("Gateway heartbeat failed: ${error.message ?: "timeout"}")
+                if (System.currentTimeMillis() - lastLivenessMs > HEARTBEAT_DEADLINE_MS) {
+                    emitError("Gateway heartbeat timeout")
                     socket?.cancel()
+                    break
+                }
+                val ws = socket ?: break
+                val pingId = "heartbeat-" + UUID.randomUUID().toString()
+                heartbeatPings.add(pingId)
+                if (!ws.send(JsonObject().apply {
+                    addProperty("jsonrpc", "2.0")
+                    addProperty("id", pingId)
+                    addProperty("method", "gateway.ping")
+                    add("params", JsonObject())
+                }.toString())) {
+                    heartbeatPings.remove(pingId)
+                    emitError("Gateway heartbeat send failed")
+                    ws.cancel()
+                    break
                 }
             }
         }
+    }
 
     private fun stopHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob = null
+        heartbeatPings.clear()
     }
 
     @Synchronized
     private fun scheduleReconnect() {
         if (!shouldReconnect || reconnectJob?.isActive == true) return
-        val delayMs = (1000L shl reconnectAttempt.coerceAtMost(4)).coerceAtMost(30_000L)
+        val delayMs = (1_000L shl reconnectAttempt.coerceAtMost(4)).coerceAtMost(30_000L)
         reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(5)
         reconnectJob = scope.launch {
             delay(delayMs)
+            reconnectJob = null
             if (shouldReconnect) connect(resetBackoff = false)
         }
     }
@@ -359,10 +379,17 @@ class HermesGatewayClient private constructor(context: Context) {
         return if (url.contains("/api/ws")) url else url + "/api/ws"
     }
 
+    private fun closeSocketOnly() {
+        try { socket?.close(1000, "client reconnect") } catch (_: Exception) { }
+        socket = null
+    }
+
     private fun failPending(message: String) {
-        pending.values.forEach { it.complete(JsonObject().apply {
-            add("error", JsonObject().apply { addProperty("message", message) })
-        }) }
+        pending.values.forEach { deferred ->
+            deferred.complete(JsonObject().apply {
+                add("error", JsonObject().apply { addProperty("message", message) })
+            })
+        }
         pending.clear()
     }
 
