@@ -228,6 +228,25 @@ class HermesGatewayClient private constructor(context: Context) {
         return result ?: JsonObject()
     }
 
+    suspend fun attachPdfBytes(sessionId: String, filename: String, bytes: ByteArray): JsonObject {
+        val result = request("pdf.attach", JsonObject().apply {
+            addProperty("session_id", sessionId)
+            addProperty("filename", filename)
+            addProperty("content_base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+        }).getAsJsonObject("result")
+        return result ?: JsonObject()
+    }
+
+    suspend fun attachFileBytes(sessionId: String, filename: String, mimeType: String, bytes: ByteArray): JsonObject {
+        val dataUrl = "data:" + mimeType + ";base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val result = request("file.attach", JsonObject().apply {
+            addProperty("session_id", sessionId)
+            addProperty("name", filename)
+            addProperty("data_url", dataUrl)
+        }).getAsJsonObject("result")
+        return result ?: JsonObject()
+    }
+
     suspend fun usage(sessionId: String): JsonObject =
         request("session.usage", JsonObject().apply { addProperty("session_id", sessionId) })
             .getAsJsonObject("result") ?: JsonObject()
