@@ -46,6 +46,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.HermesNativeActivity"
+            android:exported="false" />
+        
         <!-- Accessibility service declaration -->
         <service
             android:name=".service.BridgeAccessibilityService"
