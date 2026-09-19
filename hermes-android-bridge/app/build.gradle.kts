@@ -69,7 +69,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.gson)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("androidx.core:core-ktx:1.13.1")
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.robolectric)
