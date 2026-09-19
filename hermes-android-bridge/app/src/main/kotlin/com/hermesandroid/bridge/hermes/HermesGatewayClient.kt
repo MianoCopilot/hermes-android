@@ -60,7 +60,6 @@ class HermesGatewayClient private constructor(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private val respondedRequests = ConcurrentHashMap.newKeySet<String>()
-    private val heartbeatPings = ConcurrentHashMap.newKeySet<String>()
 
     @Volatile var state: State = State.Disconnected
         private set
@@ -71,7 +70,6 @@ class HermesGatewayClient private constructor(context: Context) {
     @Volatile private var shouldReconnect = false
     @Volatile private var reconnectJob: Job? = null
     @Volatile private var heartbeatJob: Job? = null
-    @Volatile private var lastLivenessMs = 0L
     private var reconnectAttempt = 0
 
     val gatewayUrl: String? get() = prefs.getString(KEY_URL, null)
@@ -116,7 +114,6 @@ class HermesGatewayClient private constructor(context: Context) {
         val newSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 socket = webSocket
-                lastLivenessMs = System.currentTimeMillis()
                 state = State.Connected
                 listener?.onStateChanged(state)
             }
@@ -291,12 +288,7 @@ class HermesGatewayClient private constructor(context: Context) {
             return
         }
         val id = frame.get("id")
-        if (id != null && heartbeatPings.remove(id.asString)) {
-            lastLivenessMs = System.currentTimeMillis()
-            return
-        }
         if (id != null && pending.containsKey(id.asString)) {
-            lastLivenessMs = System.currentTimeMillis()
             pending[id.asString]?.complete(frame)
             return
         }
@@ -322,26 +314,18 @@ class HermesGatewayClient private constructor(context: Context) {
 
     private fun startHeartbeat() {
         stopHeartbeat()
-        lastLivenessMs = System.currentTimeMillis()
         heartbeatJob = scope.launch {
             while (isActive && state == State.Connected) {
                 delay(HEARTBEAT_INTERVAL_MS)
                 if (!isActive || state != State.Connected) break
-                if (System.currentTimeMillis() - lastLivenessMs > HEARTBEAT_DEADLINE_MS) {
-                    emitError("Gateway heartbeat timeout")
-                    socket?.cancel()
-                    break
-                }
                 val ws = socket ?: break
                 val pingId = "heartbeat-" + UUID.randomUUID().toString()
-                heartbeatPings.add(pingId)
                 if (!ws.send(JsonObject().apply {
                     addProperty("jsonrpc", "2.0")
                     addProperty("id", pingId)
-                    addProperty("method", "gateway.ping")
+                    addProperty("method", "ping")
                     add("params", JsonObject())
                 }.toString())) {
-                    heartbeatPings.remove(pingId)
                     emitError("Gateway heartbeat send failed")
                     ws.cancel()
                     break
@@ -353,7 +337,6 @@ class HermesGatewayClient private constructor(context: Context) {
     private fun stopHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob = null
-        heartbeatPings.clear()
     }
 
     @Synchronized
