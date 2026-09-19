@@ -58,6 +58,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_hermes_native)
+        applySystemBarInsets(findViewById(R.id.hermesRoot))
         status = findViewById(R.id.tvGatewayStatus)
         messages = findViewById(R.id.messageList)
         input = findViewById(R.id.etPrompt)
@@ -118,6 +119,29 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
             if (result == TextToSpeech.SUCCESS) textToSpeech?.language = Locale.getDefault()
         }
         updateModelButton()
+    }
+
+    private fun applySystemBarInsets(root: android.view.View) {
+        val left = root.paddingLeft
+        val top = root.paddingTop
+        val right = root.paddingRight
+        val bottom = root.paddingBottom
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars())
+                view.setPadding(left + bars.left, top + bars.top, right + bars.right, bottom + bars.bottom)
+            } else {
+                @Suppress("DEPRECATION")
+                view.setPadding(
+                    left + insets.systemWindowInsetLeft,
+                    top + insets.systemWindowInsetTop,
+                    right + insets.systemWindowInsetRight,
+                    bottom + insets.systemWindowInsetBottom
+                )
+            }
+            insets
+        }
+        root.requestApplyInsets()
     }
 
     private fun pickImage() {
