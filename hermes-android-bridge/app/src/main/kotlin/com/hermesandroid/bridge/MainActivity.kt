@@ -52,6 +52,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        applySystemBarInsets(findViewById(R.id.bridgeRoot))
 
         tvA11yStatus = findViewById(R.id.tvA11yStatus)
         tvServerStatus = findViewById(R.id.tvServerStatus)
@@ -78,6 +79,10 @@ class MainActivity : Activity() {
         setupPairingCode()
         setupPermissions()
         setupRelayConnection()
+        
+        findViewById<Button>(R.id.btnOpenAgent).setOnClickListener {
+            startActivity(Intent(this, com.hermesandroid.bridge.ui.HermesNativeActivity::class.java))
+        }
 
         updateConnectionInfo()
         updateStatus()
@@ -107,6 +112,29 @@ class MainActivity : Activity() {
             }
             updatePermissionSwitches()
         }
+    }
+
+    private fun applySystemBarInsets(root: View) {
+        val left = root.paddingLeft
+        val top = root.paddingTop
+        val right = root.paddingRight
+        val bottom = root.paddingBottom
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars())
+                view.setPadding(left + bars.left, top + bars.top, right + bars.right, bottom + bars.bottom)
+            } else {
+                @Suppress("DEPRECATION")
+                view.setPadding(
+                    left + insets.systemWindowInsetLeft,
+                    top + insets.systemWindowInsetTop,
+                    right + insets.systemWindowInsetRight,
+                    bottom + insets.systemWindowInsetBottom
+                )
+            }
+            insets
+        }
+        root.requestApplyInsets()
     }
 
     private fun setupPairingCode() {

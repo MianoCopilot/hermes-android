@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/hermesRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="#111111">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="HERMES AGENT"
+            android:textColor="#ED7931"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace" />
+        <TextView
+            android:id="@+id/tvGatewayStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="● Disconnected"
+            android:textColor="#888888"
+            android:fontFamily="monospace" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/etGatewayUrl"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="8dp"
+        android:hint="Hermes Gateway URL (127.0.0.1:9119)"
+        android:singleLine="true"
+        android:textColor="#DDDDDD"
+        android:textColorHint="#555555"
+        android:fontFamily="monospace" />
+
+    <EditText
+        android:id="@+id/etGatewayToken"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:hint="Gateway token (remote / non-loopback)"
+        android:singleLine="true"
+        android:inputType="textPassword"
+        android:textColor="#DDDDDD"
+        android:textColorHint="#555555"
+        android:fontFamily="monospace" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Button
+            android:id="@+id/btnStartLocalHermes"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="START LOCAL"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnGatewayConnect"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="CONNECT"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/btnDeviceBridge"
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:text="DEVICE BRIDGE"
+        android:textAllCaps="false" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+        <LinearLayout
+            android:id="@+id/messageList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Button
+            android:id="@+id/btnResumeSession"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="RESUME"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnFile"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="FILE"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnImage"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="IMAGE"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnVoice"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="MIC"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnTts"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="TTS ON"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnModel"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="MODEL"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btnUsage"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="USAGE"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <EditText
+            android:id="@+id/etSteer"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:hint="Steer active turn..."
+            android:singleLine="true"
+            android:textColor="#EEEEEE"
+            android:textColorHint="#555555"
+            android:fontFamily="monospace" />
+        <Button
+            android:id="@+id/btnSteer"
+            android:layout_width="96dp"
+            android:layout_height="48dp"
+            android:text="STEER"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/etPrompt"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:hint="Napisz do Hermesa..."
+        android:gravity="top|start"
+        android:textColor="#EEEEEE"
+        android:textColorHint="#555555"
+        android:fontFamily="monospace" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+        <Button
+            android:id="@+id/btnSendPrompt"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="SEND"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnStopTurn"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="STOP"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnNewSession"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="NEW"
+            android:textAllCaps="false" />
+    </LinearLayout>
+</LinearLayout>

@@ -30,7 +30,7 @@
 
     <application
         android:name=".BridgeApplication"
-        android:label="Hermes Bridge"
+        android:label="Hermes Agent"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
@@ -39,13 +39,21 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.HermesNativeActivity"
+            android:exported="true" />
+        <activity-alias
+            android:name=".LauncherActivity"
+            android:exported="true"
+            android:targetActivity=".ui.HermesNativeActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-
+        </activity-alias>
+        
         <!-- Accessibility service declaration -->
         <service
             android:name=".service.BridgeAccessibilityService"

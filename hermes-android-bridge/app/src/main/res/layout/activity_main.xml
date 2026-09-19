@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/bridgeRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_circuit_pattern"
@@ -421,6 +422,19 @@
             android:background="@drawable/bg_button_orange"
             android:textAllCaps="false" />
     </LinearLayout>
+
+    <Button
+        android:id="@+id/btnOpenAgent"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="🤖 OPEN HERMES AGENT"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="#1A1A1A"
+        android:fontFamily="monospace"
+        android:background="@drawable/bg_button_orange"
+        android:layout_marginBottom="16dp"
+        android:textAllCaps="false" />
 
     <Button
         android:id="@+id/btnDisconnect"
