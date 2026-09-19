@@ -602,10 +602,9 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
                     if (ttsEnabled && assistantBuffer.isNotBlank()) {
                         val spoken = assistantBuffer.toString()
                         scope.launch {
-                            val backendSpoke = runCatching { gateway.voiceTts(spoken) }.isSuccess
-                            if (!backendSpoke) {
-                                textToSpeech?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "hermes-response")
-                            }
+                            // voice.tts is a backend-side audio action. The Android app owns
+                            // the user's speaker, so use platform TTS here for deterministic phone audio.
+                            textToSpeech?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "hermes-response")
                         }
                     }
                 }
