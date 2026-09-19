@@ -1,6 +1,7 @@
 package com.hermesandroid.bridge.ui
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.os.Bundle
 import android.Manifest
 import android.content.pm.PackageManager
