@@ -7,6 +7,7 @@ import okhttp3.*
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.net.URLEncoder
 
 class HermesGatewayClient private constructor(context: Context) {
     sealed interface State {
@@ -46,6 +47,8 @@ class HermesGatewayClient private constructor(context: Context) {
         private set
     @Volatile var listener: Listener? = null
     @Volatile private var socket: WebSocket? = null
+    @Volatile private var lastInboundMs = 0L
+    @Volatile private var heartbeatJob: Job? = null
 
     val gatewayUrl: String? get() = prefs.getString(KEY_URL, null)
     val gatewayToken: String? get() = prefs.getString(KEY_TOKEN, null)
@@ -62,26 +65,40 @@ class HermesGatewayClient private constructor(context: Context) {
         listener?.onStateChanged(state)
 
         val request = Request.Builder()
-            .url(normalizeWebSocketUrl(raw))
+            .url(buildSocketUrl(raw))
             .apply {
-                gatewayToken?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
+                val token = gatewayToken?.trim().orEmpty()
+                val socketUrl = buildSocketUrl(raw)
+                if (token.isNotBlank() && !socketUrl.contains("token=") && !socketUrl.contains("ticket=") && !socketUrl.contains("internal=")) {
+                    val separator = if (socketUrl.contains("?")) "&" else "?"
+                    url(separator + "token=" + URLEncoder.encode(token, "UTF-8"))
+                }
             }
             .build()
 
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                lastInboundMs = System.currentTimeMillis()
                 state = State.Connected
                 listener?.onStateChanged(state)
+                startHeartbeat()
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) = handleFrame(text)
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                lastInboundMs = System.currentTimeMillis()
+                handleFrame(text)
+            }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                stopHeartbeat()
+                socket = null
                 emitError("Gateway WebSocket failed: ${t.message ?: "unknown error"}")
                 failPending("Gateway failed")
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                stopHeartbeat()
+                socket = null
                 state = State.Disconnected
                 listener?.onStateChanged(state)
                 failPending("Gateway closed: $code $reason")
@@ -90,6 +107,7 @@ class HermesGatewayClient private constructor(context: Context) {
     }
 
     fun disconnect() {
+        stopHeartbeat()
         socket?.close(1000, "client disconnect")
         socket = null
         state = State.Disconnected
@@ -184,10 +202,58 @@ class HermesGatewayClient private constructor(context: Context) {
             pending[id.asString]?.complete(frame)
             return
         }
+        if (frame.get("method")?.asString == "event") {
+            val eventParams = frame.getAsJsonObject("params") ?: JsonObject()
+            val eventType = eventParams.get("type")?.asString ?: return
+            val payload = eventParams.getAsJsonObject("payload") ?: JsonObject()
+            listener?.onEvent(eventType, payload)
+            return
+        }
         val method = frame.get("method")?.asString ?: return
         val params = frame.getAsJsonObject("params") ?: JsonObject()
         if (id != null) listener?.onServerRequest(id, method, params)
         else listener?.onEvent(method, params)
+    }
+
+    private fun startHeartbeat() {
+        stopHeartbeat()
+        heartbeatJob = scope.launch {
+            delay(500L)
+            runCatching {
+                request("client.capabilities", JsonObject().apply { addProperty("server_requests", true) }, 10_000L)
+            }
+            while (isActive && state == State.Connected) {
+                delay(15_000L)
+                if (System.currentTimeMillis() - lastInboundMs > 45_000L) {
+                    emitError("Gateway heartbeat timeout")
+                    socket?.close(1011, "heartbeat timeout")
+                    break
+                }
+                val ws = socket ?: break
+                ws.send(JsonObject().apply {
+                    addProperty("jsonrpc", "2.0")
+                    addProperty("id", "heartbeat-" + UUID.randomUUID().toString())
+                    addProperty("method", "gateway.ping")
+                    add("params", JsonObject())
+                }.toString())
+            }
+        }
+    }
+
+    private fun stopHeartbeat() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+    }
+
+    private fun buildSocketUrl(raw: String): String {
+        var url = raw.trim().trimEnd('/')
+        url = when {
+            url.startsWith("https://") -> "wss://" + url.removePrefix("https://")
+            url.startsWith("http://") -> "ws://" + url.removePrefix("http://")
+            url.startsWith("wss://") || url.startsWith("ws://") -> url
+            else -> "ws://" + url
+        }
+        return if (url.contains("/api/ws")) url else url + "/api/ws"
     }
 
     private fun normalizeWebSocketUrl(raw: String): String {
