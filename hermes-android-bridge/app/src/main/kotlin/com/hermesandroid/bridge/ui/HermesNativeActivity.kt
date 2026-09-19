@@ -55,6 +55,10 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         token.setText(gateway.gatewayToken ?: "")
         updateUi()
 
+        findViewById<Button>(R.id.btnDeviceBridge).setOnClickListener {
+            startActivity(android.content.Intent(this, com.hermesandroid.bridge.MainActivity::class.java))
+        }
+
         findViewById<Button>(R.id.btnGatewayConnect).setOnClickListener {
             gateway.configure(url.text.toString(), token.text.toString().takeIf { it.isNotBlank() })
             gateway.connect()
