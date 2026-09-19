@@ -308,18 +308,48 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     }
 
     private fun showApprovalDialog(id: JsonElement, p: JsonObject): AlertDialog {
-        val command = p.get("command")?.asString ?: ""
-        val description = p.get("description")?.asString ?: "Approval required"
-        val choices = p.getAsJsonArray("choices")?.map { it.asString }?.ifEmpty { listOf("once", "deny") } ?: listOf("once", "deny")
-        val names = choices.map { it.uppercase(Locale.getDefault()) }.toTypedArray()
-        return AlertDialog.Builder(this).setTitle("Hermes approval")
-            .setMessage((if (description.isBlank()) "" else description + "\\n\\n") + command)
-            .setItems(names) { _, which ->
-                val choice = choices[which]
-                gateway.respond(id, JsonObject().apply { addProperty("choice", choice); addProperty("all", false) })
+        val command = p.get("command")?.asString.orEmpty()
+        val description = p.get("description")?.asString.orEmpty()
+        val choices = p.getAsJsonArray("choices")
+            ?.asList()
+            ?.map { item -> item.asString }
+            ?.filter { value -> value.isNotBlank() }
+            ?.ifEmpty { listOf("once", "deny") }
+            ?: listOf("once", "deny")
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Hermes approval")
+            .setMessage(
+                when {
+                    description.isBlank() -> command
+                    command.isBlank() -> description
+                    else -> description + "\n\n" + command
+                }
+            )
+            .setItems(
+                choices.map { value -> value.uppercase(Locale.getDefault()) }.toTypedArray()
+            ) { _, which ->
+                gateway.respond(id, JsonObject().apply {
+                    addProperty("choice", choices[which])
+                    addProperty("all", false)
+                })
+                activeRequestId = null
+                activeDialog = null
             }
-            .setOnCancelListener { gateway.respond(id, JsonObject()) }
-            .create().also { it.show() }
+            .setNegativeButton("CANCEL") { _, _ ->
+                gateway.respond(id, JsonObject())
+                activeRequestId = null
+                activeDialog = null
+            }
+            .create()
+
+        dialog.setOnCancelListener {
+            gateway.respond(id, JsonObject())
+            activeRequestId = null
+            activeDialog = null
+        }
+        dialog.show()
+        return dialog
     }
 
     private fun showClarifyDialog(id: JsonElement, p: JsonObject): AlertDialog {
@@ -364,14 +394,6 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         return d
     }
 
-
-        runOnUiThread {
-            appendBubble("approval", "Hermes request: $method")
-            if (method.contains("approval", ignoreCase = true)) {
-                toast("Hermes is waiting for approval")
-            }
-        }
-    }
 
     override fun onError(message: String) = runOnUiThread { toast(message) }
 
