@@ -308,12 +308,6 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         }
     }
 
-    private fun generateLocalGatewayToken(): String {
-        val bytes = ByteArray(32)
-        SecureRandom().nextBytes(bytes)
-        return Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
-    }
-
     private fun initSpeech() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             voice.isEnabled = false
