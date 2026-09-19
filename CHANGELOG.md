@@ -1,3 +1,11 @@
+## 0.6.0-native-agent
+
+- Added native Hermes Gateway chat UI and session controls.
+- Added streaming reasoning and tool progress events.
+- Added server-request handling for approvals, clarify, sudo and secret prompts.
+- Added Android speech input and TextToSpeech output.
+- Launcher now opens Hermes Agent with access to the existing Bridge dashboard.
+
 # Changelog
 
 All notable changes to this project are documented here. Format based on [Keep a Changelog](https://keepachangelog.com/); this project adheres to Conventional Commits.
