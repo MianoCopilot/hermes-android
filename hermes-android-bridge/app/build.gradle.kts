@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "com.hermesandroid.bridge"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hermesandroid.bridge"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 5
-        versionName = "0.6.0"
+        targetSdk = 36
+        versionCode = 6
+        versionName = "0.7.0"
     }
 
     buildFeatures {
