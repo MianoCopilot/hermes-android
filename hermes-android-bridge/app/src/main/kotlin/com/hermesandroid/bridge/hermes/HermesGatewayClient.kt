@@ -76,16 +76,22 @@ class HermesGatewayClient private constructor(context: Context) {
         state = State.Connecting
         listener?.onStateChanged(state)
 
+        val socketUrl = buildSocketUrl(raw)
+        val token = gatewayToken?.trim().orEmpty()
+        val authenticatedUrl = if (
+            token.isNotBlank() &&
+            !socketUrl.contains("token=") &&
+            !socketUrl.contains("ticket=") &&
+            !socketUrl.contains("internal=")
+        ) {
+            val separator = if (socketUrl.contains("?")) "&" else "?"
+            socketUrl + separator + "token=" + URLEncoder.encode(token, "UTF-8")
+        } else {
+            socketUrl
+        }
+
         val request = Request.Builder()
-            .url(buildSocketUrl(raw))
-            .apply {
-                val token = gatewayToken?.trim().orEmpty()
-                val socketUrl = buildSocketUrl(raw)
-                if (token.isNotBlank() && !socketUrl.contains("token=") && !socketUrl.contains("ticket=") && !socketUrl.contains("internal=")) {
-                    val separator = if (socketUrl.contains("?")) "&" else "?"
-                    url(separator + "token=" + URLEncoder.encode(token, "UTF-8"))
-                }
-            }
+            .url(authenticatedUrl)
             .build()
 
         socket = client.newWebSocket(request, object : WebSocketListener() {
