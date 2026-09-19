@@ -13,7 +13,6 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.Switch
 import android.widget.TextView
-import android.widget.ImageButton
 import android.widget.Toast
 import com.hermesandroid.bridge.auth.PairingManager
 import com.hermesandroid.bridge.BuildConfig
