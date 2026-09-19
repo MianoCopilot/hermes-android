@@ -13,9 +13,13 @@ object TermuxGatewayStarter {
 
     private const val PROOT_DISTRO = "/data/data/com.termux/files/usr/bin/proot-distro"
 
-    fun startLocalGateway(context: Context): Boolean {
+    fun startLocalGateway(context: Context, sessionToken: String): Boolean {
+        require(sessionToken.isNotBlank()) { "sessionToken must not be blank" }
         return runCatching {
-            val command = "nohup hermes serve --host 127.0.0.1 --port 9119 --skip-build > ~/.hermes/native-app-serve.log 2>&1 &"
+            // The gateway requires the loopback WS token. Generate it on Android and
+            // inject it as an environment variable rather than placing the secret
+            // directly in the process command line.
+            val command = "export HERMES_DASHBOARD_SESSION_TOKEN='$sessionToken'; nohup hermes serve --host 127.0.0.1 --port 9119 --skip-build > ~/.hermes/native-app-serve.log 2>&1 &"
             val intent = Intent(RUN_COMMAND_ACTION).apply {
                 setClassName(TERMUX_PACKAGE, RUN_COMMAND_SERVICE)
                 putExtra(RUN_COMMAND_PATH, PROOT_DISTRO)
