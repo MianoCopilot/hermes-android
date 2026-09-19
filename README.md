@@ -267,3 +267,16 @@ and a persistent systemd relay are all in. What's still ahead:
 ## Links
 
 - **hermes-agent**: [github.com/NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)
+
+### First launch on Android 16 + Termux
+
+The APK is a native Android client. Hermes Agent itself continues to run inside your existing Ubuntu proot-distro environment; it is not installed into native Termux.
+
+Before using START LOCAL in the app:
+
+1. In Termux, set `allow-external-apps=true` in `~/.termux/termux.properties` and restart Termux. Termux documents this as mandatory for third-party RUN_COMMAND clients.
+2. In Android Settings, open Hermes Agent → Permissions → Additional permissions and grant Run commands in Termux environment.
+3. Make sure Ubuntu proot-distro and the `hermes` command are already working in Termux.
+4. Open Hermes Agent and press START LOCAL. The app starts `hermes serve` in Ubuntu on `127.0.0.1:9119`, then connects its native client.
+
+For a remote Hermes gateway, use CONNECT and supply the gateway URL plus its session token.
