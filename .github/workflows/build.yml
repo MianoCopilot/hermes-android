@@ -2,7 +2,7 @@ name: Build Bridge APK
 
 on:
   push:
-    branches: [main, master, 'feat/**']
+    branches: [main, master]
     paths:
       - 'hermes-android-bridge/**'
       - '.github/workflows/build.yml'
