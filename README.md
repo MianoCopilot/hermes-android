@@ -38,7 +38,7 @@ Restart hermes — run `/plugins` to verify. Should show: `✓ hermes-android v0
 
 ## Native Hermes Agent app
 
-Version 0.6.0 adds a native Android Hermes Agent surface alongside the existing device bridge.
+Version 0.7.0 adds a native Android Hermes Agent surface alongside the existing device bridge.
 
 - Native WebSocket client for the Hermes TUI Gateway JSON-RPC protocol on /api/ws
 - Live assistant/reasoning streaming and tool progress
@@ -47,6 +47,7 @@ Version 0.6.0 adds a native Android Hermes Agent surface alongside the existing 
 - Native server-request cards for approvals, clarify, sudo and secret prompts
 - Android SpeechRecognizer push-to-talk input
 - Android TextToSpeech output
+- PDF and arbitrary file attachments
 - Existing Accessibility, screen, notification, microphone and relay bridge remains available
 
 The launcher opens Hermes Agent. Use DEVICE BRIDGE inside the agent screen for the underlying Android automation controls.
