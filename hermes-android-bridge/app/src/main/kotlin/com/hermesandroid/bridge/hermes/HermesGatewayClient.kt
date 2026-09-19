@@ -44,6 +44,7 @@ class HermesGatewayClient private constructor(context: Context) {
         .pingInterval(20, TimeUnit.SECONDS)
         .build()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
+    private val respondedRequests = ConcurrentHashMap.newKeySet<String>()
     private val heartbeatPings = ConcurrentHashMap.newKeySet<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -70,6 +71,7 @@ class HermesGatewayClient private constructor(context: Context) {
         reconnectJob?.cancel()
         reconnectJob = null
         disconnect()
+        respondedRequests.clear()
         shouldReconnect = true
         if (resetBackoff) reconnectAttempt = 0
         val raw = gatewayUrl?.trim().orEmpty()
@@ -164,12 +166,29 @@ class HermesGatewayClient private constructor(context: Context) {
         }
     }
 
-    suspend fun createSession(): String {
-        val frame = request("session.create")
-        val result = frame.getAsJsonObject("result") ?: throw IllegalStateException("Gateway did not return session result")
+    suspend fun createSession(
+        model: String? = null,
+        provider: String? = null,
+        reasoningEffort: String? = null
+    ): String {
+        val params = JsonObject().apply {
+            model?.takeIf { it.isNotBlank() }?.let { addProperty("model", it) }
+            provider?.takeIf { it.isNotBlank() }?.let { addProperty("provider", it) }
+            reasoningEffort?.takeIf { it.isNotBlank() && !it.equals("inherit", true) }?.let {
+                addProperty("reasoning_effort", it)
+            }
+        }
+        val frame = request("session.create", params)
+        val result = frame.getAsJsonObject("result")
+            ?: throw IllegalStateException("Gateway did not return session result")
         lastStoredSessionId = result.get("stored_session_id")?.asString
         return result.get("session_id")?.asString
             ?: throw IllegalStateException("Gateway did not return session_id")
+    }
+
+    suspend fun modelOptions(): JsonArray {
+        val frame = request("model.options")
+        return frame.getAsJsonObject("result")?.getAsJsonArray("providers") ?: JsonArray()
     }
 
     data class ResumeInfo(val runtimeId: String, val openRequests: JsonArray)
@@ -232,7 +251,9 @@ class HermesGatewayClient private constructor(context: Context) {
     }
 
     fun respond(id: JsonElement, result: JsonObject? = null, error: JsonObject? = null) {
-        socket?.send(JsonObject().apply {
+        val key = id.toString()
+        if (!respondedRequests.add(key)) return
+        val sent = socket?.send(JsonObject().apply {
             addProperty("jsonrpc", "2.0")
             add("id", id)
             when {
@@ -240,7 +261,8 @@ class HermesGatewayClient private constructor(context: Context) {
                 result != null -> add("result", result)
                 else -> add("result", JsonObject())
             }
-        }.toString())
+        }?.toString() ?: return
+        if (!sent) respondedRequests.remove(key)
     }
 
     private fun handleFrame(text: String) {
