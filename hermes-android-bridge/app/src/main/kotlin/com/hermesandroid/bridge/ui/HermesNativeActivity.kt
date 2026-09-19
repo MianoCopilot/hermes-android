@@ -31,6 +31,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private val gateway by lazy { HermesGatewayClient.get(applicationContext) }
     private var sessionId: String? = null
     private var currentAssistant: TextView? = null
+    private var currentReasoning: TextView? = null
     private val assistantBuffer = StringBuilder()
     private var ttsEnabled = true
     private var speechRecognizer: SpeechRecognizer? = null
@@ -238,12 +239,15 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     override fun onEvent(method: String, params: JsonObject) {
         runOnUiThread {
             when (method) {
-                "message.delta", "reasoning.delta", "thinking.delta" -> {
-                    val text = params.get("text")?.asString
-                        ?: params.getAsJsonObject("payload")?.get("text")?.asString
-                        ?: ""
+                "message.delta" -> {
+                    val text = params.get("text")?.asString.orEmpty()
                     assistantBuffer.append(text)
                     currentAssistant?.text = assistantBuffer.toString()
+                }
+                "reasoning.delta", "thinking.delta" -> {
+                    val text = params.get("text")?.asString.orEmpty()
+                    if (currentReasoning == null) currentReasoning = appendBubble("reasoning", "")
+                    currentReasoning?.append(text)
                 }
                 "tool.start" -> {
                     val name = params.get("name")?.asString ?: "tool"
@@ -275,8 +279,16 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
                     activeDialog = null
                 }
                 "message.complete" -> {
+                    val finalText = params.get("text")?.asString.orEmpty()
+                    if (assistantBuffer.isBlank() && finalText.isNotBlank()) {
+                        assistantBuffer.append(finalText)
+                        currentAssistant?.text = assistantBuffer.toString()
+                    }
                     currentAssistant = null
-                    if (ttsEnabled && assistantBuffer.isNotBlank()) textToSpeech?.speak(assistantBuffer.toString(), TextToSpeech.QUEUE_FLUSH, null, "hermes-response")
+                    currentReasoning = null
+                    if (ttsEnabled && assistantBuffer.isNotBlank()) {
+                        textToSpeech?.speak(assistantBuffer.toString(), TextToSpeech.QUEUE_FLUSH, null, "hermes-response")
+                    }
                 }
                 "gateway.ready" -> updateUi()
             }
