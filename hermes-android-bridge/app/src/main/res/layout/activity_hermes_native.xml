@@ -102,6 +102,13 @@
             android:text="RESUME"
             android:textAllCaps="false" />
         <Button
+            android:id="@+id/btnFile"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="FILE"
+            android:textAllCaps="false" />
+        <Button
             android:id="@+id/btnImage"
             android:layout_width="0dp"
             android:layout_height="44dp"
