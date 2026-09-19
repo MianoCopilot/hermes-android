@@ -215,6 +215,20 @@ class HermesGatewayClient private constructor(context: Context) {
         return frame.getAsJsonObject("result") ?: JsonObject()
     }
 
+    suspend fun voiceTts(text: String): JsonObject {
+        val frame = request("voice.tts", JsonObject().apply {
+            addProperty("text", text)
+        }, 60_000L)
+        return frame.getAsJsonObject("result") ?: JsonObject()
+    }
+
+    suspend fun voiceToggle(action: String): JsonObject {
+        val frame = request("voice.toggle", JsonObject().apply {
+            addProperty("action", action)
+        }, 20_000L)
+        return frame.getAsJsonObject("result") ?: JsonObject()
+    }
+
     suspend fun sendPrompt(sessionId: String, text: String) {
         request("prompt.submit", JsonObject().apply {
             addProperty("session_id", sessionId)
