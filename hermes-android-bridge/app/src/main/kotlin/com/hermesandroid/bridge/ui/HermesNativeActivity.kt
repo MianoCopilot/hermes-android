@@ -54,6 +54,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private var lastToolLine: TextView? = null
     private val prefs by lazy { getSharedPreferences("hermes_native_session", MODE_PRIVATE) }
     private val IMAGE_PICK_REQUEST = 5101
+    private val FILE_PICK_REQUEST = 5102
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,6 +110,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         findViewById<Button>(R.id.btnNewSession).setOnClickListener { newSession() }
         findViewById<Button>(R.id.btnResumeSession).setOnClickListener { showSessions() }
         findViewById<Button>(R.id.btnImage).setOnClickListener { pickImage() }
+        findViewById<Button>(R.id.btnFile).setOnClickListener { pickFile() }
         findViewById<Button>(R.id.btnUsage).setOnClickListener { showUsage() }
         btnSteer.setOnClickListener { submitSteer() }
         voice.setOnClickListener { startVoiceInput() }
@@ -144,6 +146,19 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         root.requestApplyInsets()
     }
 
+    private fun pickFile() {
+        if (sessionId == null) {
+            toast("Create or resume a Hermes session first")
+            return
+        }
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        runCatching { startActivityForResult(intent, FILE_PICK_REQUEST) }
+            .onFailure { error -> toast("Could not open file picker: " + error.message) }
+    }
+
     private fun pickImage() {
         if (sessionId == null) {
             toast("Create or resume a Hermes session first")
@@ -160,9 +175,50 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != IMAGE_PICK_REQUEST || resultCode != RESULT_OK) return
-        val imageUri = data?.data ?: return
-        attachImage(imageUri)
+        if (resultCode != RESULT_OK) return
+        val selectedUri = data?.data ?: return
+        when (requestCode) {
+            IMAGE_PICK_REQUEST -> attachImage(selectedUri)
+            FILE_PICK_REQUEST -> attachFile(selectedUri)
+        }
+    }
+
+    private fun attachFile(uri: Uri) {
+        val sid = sessionId ?: return
+        scope.launch {
+            runCatching {
+                val filename = queryDisplayName(uri) ?: "attachment"
+                val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+                val bytes = readAttachmentBytes(uri, 20 * 1024 * 1024)
+                val result = if (mimeType.equals("application/pdf", true) || filename.endsWith(".pdf", true)) {
+                    gateway.attachPdfBytes(sid, filename, bytes)
+                } else {
+                    gateway.attachFileBytes(sid, filename, mimeType, bytes)
+                }
+                runOnUiThread {
+                    val label = result.get("text")?.asString
+                        ?: result.get("message")?.asString
+                        ?: result.get("ref_text")?.asString
+                        ?: "Attached " + filename
+                    appendBubble("system", "📎 " + label)
+                }
+            }.onFailure { error -> toast(error.message ?: "File attach failed") }
+        }
+    }
+
+    private fun readAttachmentBytes(uri: Uri, maxBytes: Int): ByteArray {
+        val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("Could not read file")
+        input.use { stream ->
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                if (read > 0) out.write(buffer, 0, read)
+                if (out.size() > maxBytes) throw IllegalStateException("File is larger than " + (maxBytes / (1024 * 1024)) + " MB")
+            }
+            return out.toByteArray()
+        }
     }
 
     private fun attachImage(uri: Uri) {
