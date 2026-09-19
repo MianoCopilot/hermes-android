@@ -57,8 +57,33 @@
         android:text="DEVICE BRIDGE"
         android:textAllCaps="false" />
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <Button
+            android:id="@+id/btnStartLocalHermes"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="START LOCAL"
+            android:textAllCaps="false" />
+        <Button
+            android:id="@+id/btnGatewayConnect"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="CONNECT"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <!-- gateway connect row replaces standalone button -->
+    
     <Button
-        android:id="@+id/btnGatewayConnect"
+        android:id="@+id/btnGatewayConnectLegacy"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
         android:layout_width="match_parent"
         android:layout_height="44dp"
         android:text="CONNECT TO HERMES"
