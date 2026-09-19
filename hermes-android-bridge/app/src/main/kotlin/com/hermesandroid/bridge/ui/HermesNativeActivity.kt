@@ -407,9 +407,13 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
             override fun onEndOfSpeech() { voice.text = "MIC" }
             override fun onError(error: Int) { voice.text = "MIC"; toast("Speech recognition error: $error") }
             override fun onResults(results: Bundle?) {
-                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                if (text.isNotBlank()) { input.setText(text); input.setSelection(input.text.length) }
+                val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                 voice.text = "MIC"
+                if (spoken.isNotBlank()) {
+                    input.setText(spoken)
+                    input.setSelection(input.text.length)
+                    if (gateway.state == HermesGatewayClient.State.Connected) submit()
+                }
             }
             override fun onPartialResults(partialResults: Bundle?) = Unit
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -496,7 +500,13 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
                     currentAssistant = null
                     currentReasoning = null
                     if (ttsEnabled && assistantBuffer.isNotBlank()) {
-                        textToSpeech?.speak(assistantBuffer.toString(), TextToSpeech.QUEUE_FLUSH, null, "hermes-response")
+                        val spoken = assistantBuffer.toString()
+                        scope.launch {
+                            val backendSpoke = runCatching { gateway.voiceTts(spoken) }.isSuccess
+                            if (!backendSpoke) {
+                                textToSpeech?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "hermes-response")
+                            }
+                        }
                     }
                 }
                 "gateway.ready" -> {
