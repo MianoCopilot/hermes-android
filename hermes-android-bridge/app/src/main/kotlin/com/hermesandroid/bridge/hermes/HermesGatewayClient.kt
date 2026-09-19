@@ -47,6 +47,11 @@ class HermesGatewayClient private constructor(context: Context) {
         private set
     @Volatile var listener: Listener? = null
     @Volatile private var socket: WebSocket? = null
+    @Volatile var lastStoredSessionId: String? = null
+        private set
+    @Volatile private var shouldReconnect = false
+    @Volatile private var reconnectJob: Job? = null
+    private var reconnectAttempt = 0
     @Volatile private var lastInboundMs = 0L
     @Volatile private var heartbeatJob: Job? = null
 
@@ -58,6 +63,9 @@ class HermesGatewayClient private constructor(context: Context) {
     }
 
     fun connect() {
+        shouldReconnect = true
+        reconnectAttempt = 0
+        reconnectJob?.cancel()
         val raw = gatewayUrl?.trim().orEmpty()
         if (raw.isBlank()) return emitError("Gateway URL is empty")
         disconnect()
@@ -94,6 +102,7 @@ class HermesGatewayClient private constructor(context: Context) {
                 socket = null
                 emitError("Gateway WebSocket failed: ${t.message ?: "unknown error"}")
                 failPending("Gateway failed")
+                scheduleReconnect()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -102,11 +111,15 @@ class HermesGatewayClient private constructor(context: Context) {
                 state = State.Disconnected
                 listener?.onStateChanged(state)
                 failPending("Gateway closed: $code $reason")
+                scheduleReconnect()
             }
         })
     }
 
     fun disconnect() {
+        shouldReconnect = false
+        reconnectJob?.cancel()
+        reconnectJob = null
         stopHeartbeat()
         socket?.close(1000, "client disconnect")
         socket = null
@@ -144,8 +157,22 @@ class HermesGatewayClient private constructor(context: Context) {
 
     suspend fun createSession(): String {
         val frame = request("session.create")
-        return frame.getAsJsonObject("result")?.get("session_id")?.asString
+        val result = frame.getAsJsonObject("result") ?: throw IllegalStateException("Gateway did not return session result")
+        lastStoredSessionId = result.get("stored_session_id")?.asString
+        return result.get("session_id")?.asString
             ?: throw IllegalStateException("Gateway did not return session_id")
+    }
+
+    data class ResumeInfo(val runtimeId: String, val openRequests: JsonArray)
+
+    suspend fun resumeSessionInfo(storedId: String): ResumeInfo {
+        val frame = request("session.resume", JsonObject().apply { addProperty("session_id", storedId) })
+        val result = frame.getAsJsonObject("result") ?: throw IllegalStateException("Gateway did not return resume result")
+        val runtimeId = result.get("session_id")?.asString
+            ?: throw IllegalStateException("Gateway did not return runtime session_id")
+        val openRequests = result.getAsJsonArray("open_requests") ?: JsonArray()
+        lastStoredSessionId = result.get("stored_session_id")?.asString ?: storedId
+        return ResumeInfo(runtimeId, openRequests)
     }
 
     suspend fun sendPrompt(sessionId: String, text: String) {
@@ -237,6 +264,17 @@ class HermesGatewayClient private constructor(context: Context) {
                     add("params", JsonObject())
                 }.toString())
             }
+        }
+    }
+
+    @Synchronized
+    private fun scheduleReconnect() {
+        if (!shouldReconnect || reconnectJob?.isActive == true) return
+        val delayMs = (1000L shl reconnectAttempt.coerceAtMost(4)).coerceAtMost(30_000L)
+        reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(5)
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            if (shouldReconnect) connect()
         }
     }
 
