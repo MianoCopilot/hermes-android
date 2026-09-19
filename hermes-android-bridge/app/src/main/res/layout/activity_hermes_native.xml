@@ -138,6 +138,28 @@
             android:textAllCaps="false" />
     </LinearLayout>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <EditText
+            android:id="@+id/etSteer"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:hint="Steer active turn..."
+            android:singleLine="true"
+            android:textColor="#EEEEEE"
+            android:textColorHint="#555555"
+            android:fontFamily="monospace" />
+        <Button
+            android:id="@+id/btnSteer"
+            android:layout_width="96dp"
+            android:layout_height="48dp"
+            android:text="STEER"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
     <EditText
         android:id="@+id/etPrompt"
         android:layout_width="match_parent"
