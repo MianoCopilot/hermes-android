@@ -2,12 +2,12 @@ name: Build Bridge APK
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, 'feat/**']
     paths:
       - 'hermes-android-bridge/**'
       - '.github/workflows/build.yml'
   pull_request:
-    branches: [main, master]
+    branches: [main, master, 'feat/**']
     paths:
       - 'hermes-android-bridge/**'
   workflow_dispatch:  # manual trigger
@@ -55,7 +55,7 @@ jobs:
       # the APK to the latest-build release below, so a per-push artifact
       # is redundant and just accumulates storage.
       - name: Upload APK artifact
-        if: github.event_name == 'pull_request'
+        if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch) || github.event_name == 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: hermes-bridge-debug-pr${{ github.event.pull_request.number }}
