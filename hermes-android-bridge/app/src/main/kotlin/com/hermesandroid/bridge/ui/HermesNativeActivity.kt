@@ -36,6 +36,8 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
     private var activeDialog: AlertDialog? = null
+    private var lastToolLine: TextView? = null
+    private val prefs by lazy { getSharedPreferences("hermes_native_session", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,6 +56,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         url.setText(gateway.gatewayUrl ?: "")
         token.setText(gateway.gatewayToken ?: "")
         updateUi()
+        if (prefs.getString("stored_session_id", null) != null) appendBubble("system", "Saved session available • tap RESUME")
 
         findViewById<Button>(R.id.btnDeviceBridge).setOnClickListener {
             startActivity(android.content.Intent(this, com.hermesandroid.bridge.MainActivity::class.java))
@@ -81,6 +84,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         scope.launch {
             runCatching {
                 sessionId = gateway.createSession()
+                prefs.edit().remove("stored_session_id").apply()
                 messages.removeAllViews()
                 appendBubble("system", "New Hermes session")
             }.onFailure { toast(it.message ?: "Could not create session") }
@@ -120,6 +124,7 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
         scope.launch {
             runCatching {
                 sessionId = gateway.resumeSession(storedId)
+                prefs.edit().putString("stored_session_id", storedId).apply()
                 val history = gateway.history(sessionId!!)
                 messages.removeAllViews()
                 renderHistory(history)
@@ -239,6 +244,35 @@ class HermesNativeActivity : Activity(), HermesGatewayClient.Listener {
                         ?: ""
                     assistantBuffer.append(text)
                     currentAssistant?.text = assistantBuffer.toString()
+                }
+                "tool.start" -> {
+                    val name = params.get("name")?.asString ?: "tool"
+                    val preview = params.get("preview")?.asString ?: params.get("args_text")?.asString.orEmpty()
+                    val suffix = if (preview.isNotBlank()) " • " + preview else ""
+                    lastToolLine = appendBubble("system", "⚙ " + name + suffix)
+                }
+                "tool.complete" -> {
+                    val name = params.get("name")?.asString ?: "tool"
+                    val summary = params.get("summary")?.asString ?: params.get("result_text")?.asString.orEmpty()
+                    val suffix = if (summary.isNotBlank()) " • " + summary else ""
+                    lastToolLine?.text = "✓ " + name + suffix
+                    lastToolLine = null
+                }
+                "status.update", "notification.show" -> {
+                    val text = params.get("text")?.asString.orEmpty()
+                    if (text.isNotBlank()) appendBubble("system", text)
+                }
+                "reasoning.available" -> {
+                    val text = params.get("text")?.asString.orEmpty()
+                    if (text.isNotBlank()) appendBubble("system", "🧠 reasoning available: " + text.take(400))
+                }
+                "voice.transcript" -> {
+                    val text = params.get("text")?.asString.orEmpty()
+                    if (text.isNotBlank()) input.setText(text)
+                }
+                "request.cancel" -> {
+                    activeDialog?.dismiss()
+                    activeDialog = null
                 }
                 "message.complete" -> {
                     currentAssistant = null
