@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.net.URLEncoder
 
+
 class HermesGatewayClient private constructor(context: Context) {
     sealed interface State {
         data object Disconnected : State
@@ -251,6 +252,20 @@ class HermesGatewayClient private constructor(context: Context) {
             val eventParams = frame.getAsJsonObject("params") ?: JsonObject()
             val eventType = eventParams.get("type")?.asString ?: return
             val payload = eventParams.getAsJsonObject("payload") ?: JsonObject()
+            if (eventType == "gateway.ready") {
+                if (payload.get("heartbeat")?.asBoolean == true) {
+                    startHeartbeat()
+                }
+                scope.launch {
+                    runCatching {
+                        request(
+                            "client.capabilities",
+                            JsonObject().apply { addProperty("server_requests", true) },
+                            10_000L
+                        )
+                    }
+                }
+            }
             listener?.onEvent(eventType, payload)
             return
         }
@@ -263,24 +278,17 @@ class HermesGatewayClient private constructor(context: Context) {
     private fun startHeartbeat() {
         stopHeartbeat()
         heartbeatJob = scope.launch {
-            delay(500L)
-            runCatching {
-                request("client.capabilities", JsonObject().apply { addProperty("server_requests", true) }, 10_000L)
-            }
             while (isActive && state == State.Connected) {
                 delay(15_000L)
-                if (System.currentTimeMillis() - lastInboundMs > 45_000L) {
-                    emitError("Gateway heartbeat timeout")
-                    socket?.close(1011, "heartbeat timeout")
+                if (!isActive || state != State.Connected) break
+                try {
+                    request("ping", JsonObject(), 10_000L)
+                    lastInboundMs = System.currentTimeMillis()
+                } catch (error: Exception) {
+                    emitError("Gateway heartbeat failed: ${error.message ?: "timeout"}")
+                    socket?.cancel()
                     break
                 }
-                val ws = socket ?: break
-                ws.send(JsonObject().apply {
-                    addProperty("jsonrpc", "2.0")
-                    addProperty("id", "heartbeat-" + UUID.randomUUID().toString())
-                    addProperty("method", "gateway.ping")
-                    add("params", JsonObject())
-                }.toString())
             }
         }
     }
