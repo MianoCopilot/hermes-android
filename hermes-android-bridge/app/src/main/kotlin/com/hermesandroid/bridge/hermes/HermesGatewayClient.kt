@@ -250,7 +250,7 @@ class HermesGatewayClient private constructor(context: Context) {
     fun respond(id: JsonElement, result: JsonObject? = null, error: JsonObject? = null) {
         val key = id.toString()
         if (!respondedRequests.add(key)) return
-        val sent = socket?.send(JsonObject().apply {
+        val payload = JsonObject().apply {
             addProperty("jsonrpc", "2.0")
             add("id", id)
             when {
@@ -258,7 +258,11 @@ class HermesGatewayClient private constructor(context: Context) {
                 result != null -> add("result", result)
                 else -> add("result", JsonObject())
             }
-        }?.toString() ?: return
+        }.toString()
+        val sent = socket?.send(payload) ?: run {
+            respondedRequests.remove(key)
+            return
+        }
         if (!sent) respondedRequests.remove(key)
     }
 
