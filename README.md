@@ -36,6 +36,21 @@ cp -r hermes-android-plugin ~/.hermes/plugins/hermes-android
 
 Restart hermes — run `/plugins` to verify. Should show: `✓ hermes-android v0.5.0 (42 tools)`
 
+## Native Hermes Agent app
+
+Version 0.6.0 adds a native Android Hermes Agent surface alongside the existing device bridge.
+
+- Native WebSocket client for the Hermes TUI Gateway JSON-RPC protocol on /api/ws
+- Live assistant/reasoning streaming and tool progress
+- Create, resume, list and inspect session history
+- Interrupt and steer active sessions
+- Native server-request cards for approvals, clarify, sudo and secret prompts
+- Android SpeechRecognizer push-to-talk input
+- Android TextToSpeech output
+- Existing Accessibility, screen, notification, microphone and relay bridge remains available
+
+The launcher opens Hermes Agent. Use DEVICE BRIDGE inside the agent screen for the underlying Android automation controls.
+
 ## Quick Start
 
 ### 1. Install the bridge app on your phone
