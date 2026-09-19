@@ -286,9 +286,6 @@ class HermesGatewayClient private constructor(context: Context) {
             return
         }
         val id = frame.get("id")
-        if (id != null && heartbeatPings.remove(id.asString)) {
-            return
-        }
         if (id != null && pending.containsKey(id.asString)) {
             lastLivenessMs = System.currentTimeMillis()
             pending[id.asString]?.complete(frame)
