@@ -310,19 +310,27 @@ class HermesGatewayClient private constructor(context: Context) {
 
     private fun startHeartbeat() {
         stopHeartbeat()
+        lastLivenessMs = System.currentTimeMillis()
         heartbeatJob = scope.launch {
             while (isActive && state == State.Connected) {
                 delay(15_000L)
                 if (!isActive || state != State.Connected) break
+                if (System.currentTimeMillis() - lastLivenessMs > 45_000L) {
+                    emitError("Gateway heartbeat timeout")
+                    socket?.cancel()
+                    break
+                }
                 val ws = socket ?: break
                 val pingId = "heartbeat-" + UUID.randomUUID().toString()
+                heartbeatPings.add(pingId)
                 val sent = ws.send(JsonObject().apply {
                     addProperty("jsonrpc", "2.0")
                     addProperty("id", pingId)
-                    addProperty("method", "ping")
+                    addProperty("method", "gateway.ping")
                     add("params", JsonObject())
                 }.toString())
                 if (!sent) {
+                    heartbeatPings.remove(pingId)
                     emitError("Gateway heartbeat send failed")
                     ws.cancel()
                     break
